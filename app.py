@@ -416,7 +416,6 @@ elif choice == "Edit Transaction":
           "Type", ["Expense", "Income"], index=0 if r_type == "Expense" else 1
       )
 
-      # Location options setup for edit
       loc_list = ["Patna", "Barhiya", "Lakhisarai", "Others"]
       try:
         loc_index = loc_list.index(r_location)
@@ -430,7 +429,14 @@ elif choice == "Edit Transaction":
           "Amount (Rs)", min_value=0.0, format="%.2f", value=float(r_amount)
       )
 
-      pay_modes = ["UPI", "Credit Card", "Debit Card", "Cash", "Net Banking", "Other"]
+      pay_modes = [
+          "UPI",
+          "Credit Card",
+          "Debit Card",
+          "Cash",
+          "Net Banking",
+          "Other",
+      ]
       try:
         pay_index = pay_modes.index(r_pay_mode)
       except:
@@ -448,9 +454,9 @@ elif choice == "Edit Transaction":
           st.error("कृपया कैटेगरी दर्ज करें!")
         else:
           cursor.execute(
-              """UPDATE transactions SET type = ?, location = ?, category = ?,"
+              "UPDATE transactions SET type = ?, location = ?, category = ?,"
               " sub_category = ?, amount = ?, payment_mode = ?, remarks = ? WHERE"
-              " id = ?""",
+              " id = ?",
               (
                   new_type,
                   new_location,
@@ -464,5 +470,6 @@ elif choice == "Edit Transaction":
           )
           conn.commit()
           st.success(f"🎉 Transaction ID {edit_id} सफलतापूर्वक अपडेट हो गया!")
+          st.rerun()
   else:
-    st.warning("درج की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
+    st.warning("दर्ज की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
