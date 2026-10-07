@@ -37,7 +37,7 @@ st.write(
     "अपने दैनिक, मासिक और वार्षिक आय-व्यय (Income & Expense) का पूरा हिसाब रखें।"
 )
 
-# साइडबार या टैब नेविगेशन
+# मेनू चयन
 menu = ["Add Transaction", "Reports & Dashboard"]
 choice = st.sidebar.selectbox("Menu", menu)
 
@@ -45,70 +45,63 @@ choice = st.sidebar.selectbox("Menu", menu)
 if choice == "Add Transaction":
   st.subheader("📝 नया लेनदेन दर्ज करें (Add New Entry)")
 
-  with st.form("transaction_form", clear_on_submit=True):
-    t_type = st.selectbox("Type", ["Expense", "Income"])
+  # फॉर्म के बाहर टाइप और लोकेशन रखेंगे ताकि तुरंत स्क्रीन अपडेट हो सके
+  t_type = st.selectbox("Type", ["Expense", "Income"])
 
-    location = "Income Source"
-    if t_type == "Expense":
-      location = st.selectbox(
-          "Location", ["Patna", "Barhiya", "Lakhisarai", "Others"]
-      )
+  location = "Income Source"
+  sub_cat_options = []
 
-    # सब-कैटेगरी तय करना
-    if t_type == "Income":
-      sub_cat = st.selectbox(
-          "Income Category",
-          [
-              "Salary",
-              "Refund From Amazon",
-              "Refund From Flipkart",
-              "Refund From Other Online Platform",
-              "Smita G",
-              "Office",
-              "Advocate",
-              "Others",
-          ],
-      )
+  if t_type == "Expense":
+    location = st.selectbox(
+        "Location", ["Patna", "Barhiya", "Lakhisarai", "Others"]
+    )
+
+    if location == "Patna":
+      sub_cat_options = [
+          "Office",
+          "Room Rent",
+          "Room Misc.",
+          "Room Others",
+          "Room Rishi",
+          "Lagguage",
+          "Others",
+      ]
+    elif location == "Barhiya":
+      sub_cat_options = [
+          "Chhotu",
+          "Breakfast Market",
+          "Pagla Shop",
+          "Ice Cream",
+          "Mukhiya G",
+          "Munni G",
+          "Mother",
+          "Father",
+          "Festival",
+          "Misc.",
+          "Others",
+      ]
+    elif location == "Lakhisarai":
+      sub_cat_options = ["Breakfast", "Toys", "Books", "Smita G", "Others"]
     else:
-      if location == "Patna":
-        sub_cat = st.selectbox(
-            "Sub-Category",
-            [
-                "Office",
-                "Room Rent",
-                "Room Misc.",
-                "Room Others",
-                "Room Rishi",
-                "Lagguage",
-                "Others",
-            ],
-        )
-      elif location == "Barhiya":
-        sub_cat = st.selectbox(
-            "Sub-Category",
-            [
-                "Chhotu",
-                "Breakfast Market",
-                "Pagla Shop",
-                "Ice Cream",
-                "Mukhiya G",
-                "Munni G",
-                "Mother",
-                "Father",
-                "Festival",
-                "Misc.",
-                "Others",
-            ],
-        )
-      elif location == "Lakhisarai":
-        sub_cat = st.selectbox(
-            "Sub-Category", ["Breakfast", "Toys", "Books", "Smita G", "Others"]
-        )
-      else:
-        sub_cat = st.text_input("Type custom category for Others")
+      sub_cat_options = ["Manual Entry (Others)"]
+  else:
+    sub_cat_options = [
+        "Salary",
+        "Refund From Amazon",
+        "Refund From Flipkart",
+        "Refund From Other Online Platform",
+        "Smita G",
+        "Office",
+        "Advocate",
+        "Others",
+    ]
 
-      if sub_cat == "Others" and location != "Others":
-        sub_cat = st.text_input("Specify Others category name")
+  with st.form("transaction_form"):
+    sub_cat = st.selectbox("Sub-Category", sub_cat_options)
+
+    manual_cat = ""
+    if sub_cat == "Others" or location == "Others":
+      manual_cat = st.text_input("Type custom category name if Others")
 
     amount = st.number_input("Amount (Rs)", min_value=0.0, format="%.2f")
     remarks = st.text_area("Remarks (विवरण या नोट)")
@@ -116,16 +109,26 @@ if choice == "Add Transaction":
     submit_button = st.form_submit_button(label="Save Transaction")
 
     if submit_button:
+      final_sub_cat = manual_cat.strip() if manual_cat.strip() else sub_cat
+
       if amount <= 0:
         st.error("कृपया सही राशि (Amount) दर्ज करें!")
-      elif not sub_cat:
+      elif not final_sub_cat:
         st.error("कृपया कैटेगरी की जानकारी दें!")
       else:
         date_str = datetime.now().strftime("%Y-%m-%d")
         cursor.execute(
             "INSERT INTO transactions (date, type, location, category,"
             " sub_category, amount, remarks) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (date_str, t_type, location, sub_cat, sub_cat, amount, remarks),
+            (
+                date_str,
+                t_type,
+                location,
+                final_sub_cat,
+                final_sub_cat,
+                amount,
+                remarks,
+            ),
         )
         conn.commit()
         st.success("🎉 लेनदेन सफलतापूर्वक सुरक्षित हो गया!")
@@ -134,7 +137,6 @@ if choice == "Add Transaction":
 elif choice == "Reports & Dashboard":
   st.subheader("📊 रिपोर्ट और विश्लेषण (Reports & View)")
 
-  # फ़िल्टर विकल्प
   period = st.selectbox(
       "Select Period", ["All Time", "Monthly", "Yearly", "Custom Date"]
   )
@@ -175,12 +177,10 @@ elif choice == "Reports & Dashboard":
         columns=["ID", "Date", "Type", "Location", "Sub-Category", "Amount", "Remarks"],
     )
 
-    # कुल आय और खर्च की गणना
     total_income = df[df["Type"] == "Income"]["Amount"].sum()
     total_expense = df[df["Type"] == "Expense"]["Amount"].sum()
     net_balance = total_income - total_expense
 
-    # डैशबोर्ड मेट्रिक्स कार्ड्स
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Income", f"Rs {total_income:,.2f}")
     col2.metric("Total Expense", f"Rs {total_expense:,.2f}")
@@ -189,7 +189,6 @@ elif choice == "Reports & Dashboard":
     st.markdown("---")
     st.dataframe(df, use_container_width=True)
 
-    # डेटा डिलीट करने का ऑप्शन (अगर गलती से एंट्री हो जाए)
     st.markdown("### 🗑️ Delete Transaction")
     del_id = st.number_input(
         "Enter Transaction ID to Delete", min_value=0, step=1
@@ -202,4 +201,3 @@ elif choice == "Reports & Dashboard":
         st.rerun()
   else:
     st.info("इस अवधि के लिए कोई डेटा उपलब्ध नहीं है।")
-    
