@@ -39,6 +39,20 @@ def init_db():
         )
     """)
 
+  # Loans & LIC (Recurring Payments) table
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS recurring_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_name TEXT UNIQUE,
+            payment_type TEXT,
+            amount REAL,
+            frequency TEXT,
+            due_day INTEGER,
+            due_month INTEGER,
+            payment_mode TEXT
+        )
+    """)
+
   cursor.execute("PRAGMA table_info(transactions)")
   columns = [col[1] for col in cursor.fetchall()]
   if "payment_mode" not in columns:
@@ -53,7 +67,7 @@ def init_db():
 conn = init_db()
 cursor = conn.cursor()
 
-# Pre-populate credit cards if table is empty
+# Pre-populate default credit cards if table is empty
 cursor.execute("SELECT COUNT(*) FROM credit_cards")
 if cursor.fetchone()[0] == 0:
   initial_cards = [
@@ -85,6 +99,21 @@ if cursor.fetchone()[0] == 0:
   )
   conn.commit()
 
+# Pre-populate default loans if table is empty
+cursor.execute("SELECT COUNT(*) FROM recurring_payments")
+if cursor.fetchone()[0] == 0:
+  initial_recurring = [
+      ("Kotak Bank Loan EMI", "Loan", 10051.0, "Monthly", 2, 0, "Net Banking"),
+      ("HDFC Bank Loan EMI", "Loan", 47809.0, "Monthly", 6, 0, "Net Banking"),
+  ]
+  cursor.executemany(
+      "INSERT OR IGNORE INTO recurring_payments (item_name, payment_type,"
+      " amount, frequency, due_day, due_month, payment_mode) VALUES (?, ?, ?,"
+      " ?, ?, ?, ?)",
+      initial_recurring,
+  )
+  conn.commit()
+
 # title & developer branding
 col1, col2 = st.columns([3, 2])
 with col1:
@@ -100,6 +129,65 @@ st.write(
     "अपने दैनिक, मासिक, वार्षिक और क्रेडिट कार्ड / भुगतान माध्यम के हिसाब से"
     " आय-व्यय का पूरा हिसाब रखें।"
 )
+
+# ----------------- SMART 7-DAY DUE DATE RED ALERT -----------------
+cursor.execute("SELECT card_name, due_date FROM credit_cards")
+all_cards_for_alert = cursor.fetchall()
+today = datetime.now()
+current_day = today.day
+current_month = today.month
+current_year = today.year
+
+alerts = []
+for c_name, d_date in all_cards_for_alert:
+  try:
+    due_dt = datetime(current_year, current_month, int(d_date))
+    days_left = (due_dt - today).days
+    if 0 <= days_left <= 7:
+      alerts.append(
+          f"⚠️ **Alert:** '{c_name}' की Due Date **{d_date} तारीख** को है! (सिर्फ"
+          f" {days_left} दिन बाकी)"
+      )
+    elif -3 <= days_left < 0:
+      alerts.append(
+          f"🚨 **Urgent:** '{c_name}' की Due Date निकल चुकी है! कृपया तुरंत"
+          " भुगतान करें।"
+      )
+  except:
+    pass
+
+# Check recurring payments alerts (Loans & LIC)
+cursor.execute(
+    "SELECT item_name, payment_type, amount, frequency, due_day, due_month,"
+    " payment_mode FROM recurring_payments"
+)
+rec_payments = cursor.fetchall()
+
+for item_name, p_type, amt, freq, d_day, d_mon, p_mode in rec_payments:
+  try:
+    if freq == "Monthly":
+      due_dt = datetime(current_year, current_month, int(d_day))
+      days_left = (due_dt - today).days
+      if 0 <= days_left <= 7:
+        alerts.append(
+            f"⚠️ **Upcoming {p_type}:** '{item_name}' (Rs {amt:,.0f}) की Due"
+            f" Date **{d_day} तारीख** को है! ({days_left} दिन बाकी)"
+        )
+    elif freq == "Yearly":
+      due_dt = datetime(current_year, int(d_mon), int(d_day))
+      days_left = (due_dt - today).days
+      if 0 <= days_left <= 7:
+        alerts.append(
+            f"⚠️ **Upcoming Yearly {p_type}:** '{item_name}' (Rs {amt:,.0f}) की"
+            f" Due Date **{d_day}-{d_mon}** को है! ({days_left} दिन बाकी)"
+        )
+  except:
+    pass
+
+if alerts:
+  st.error("### 🔔 Payment & Due Date Alerts")
+  for alert in alerts:
+    st.markdown(alert)
 
 # Fetch current month summary for dashboard overview
 current_month_str = datetime.now().strftime("%Y-%m")
@@ -125,13 +213,14 @@ d4.metric("CC Expense", f"Rs {m_cc_expense:,.0f}")
 
 st.markdown("---")
 
-# menu selection including the new Credit Card Manager option
+# menu selection
 menu = [
     "Add Transaction",
     "Reports & Dashboard",
     "Detailed Summary (Expense/Income)",
     "Edit Transaction",
     "Manage Credit Cards (Dates)",
+    "Manage Loans & LIC",
 ]
 choice = st.sidebar.selectbox("Menu", menu)
 
@@ -413,17 +502,7 @@ elif choice == "Reports & Dashboard":
     m2.metric("Filtered Expense", f"Rs {tot_expense:,.2f}")
     m3.metric("Net Balance", f"Rs {net_val:,.2f}")
 
-    # One Click CSV Download Option
-    csv_data = filtered_df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="📥 Download Filtered Data as CSV/Excel",
-        data=csv_data,
-        file_name="kharcha_paani_report.csv",
-        mime="text/csv",
-    )
-
-    st.markdown("### 📋 Transaction Records")
-    display_df = filtered_df[
+    export_df = filtered_df[
         [
             "ID",
             "Date",
@@ -434,8 +513,26 @@ elif choice == "Reports & Dashboard":
             "Payment_Mode",
             "Remarks",
         ]
-    ]
-    st.dataframe(display_df, use_container_width=True)
+    ].copy()
+    export_df.rename(
+        columns={
+            "Type": "Transaction Type (Credit/Debit)",
+            "Sub-Category": "Category",
+            "Payment_Mode": "Payment Mode",
+        },
+        inplace=True,
+    )
+    csv_data = export_df.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        label="📥 Download Formatted Report as Excel/CSV",
+        data=csv_data,
+        file_name="kharcha_paani_formatted_report.csv",
+        mime="text/csv",
+    )
+
+    st.markdown("### 📋 Transaction Records")
+    st.dataframe(filtered_df[export_df.columns], use_container_width=True)
 
     if not filtered_df.empty:
       col_sum1, col_sum2 = st.columns(2)
@@ -611,31 +708,38 @@ elif choice == "Detailed Summary (Expense/Income)":
         value=f"Rs {total_amt:,.2f}",
     )
 
-    # Download button for detailed view
-    d_csv = filtered_view_df.to_csv(index=False).encode("utf-8")
+    d_export = filtered_view_df[
+        [
+            "ID",
+            "Date",
+            "Type",
+            "Location",
+            "Sub-Category",
+            "Amount",
+            "Payment_Mode",
+            "Remarks",
+        ]
+    ].copy()
+    d_export.rename(
+        columns={
+            "Type": "Transaction Type (Credit/Debit)",
+            "Sub-Category": "Category",
+            "Payment_Mode": "Payment Mode",
+        },
+        inplace=True,
+    )
+    d_csv = d_export.to_csv(index=False).encode("utf-8")
+
     st.download_button(
-        label=f"📥 Download {selected_type} Data as CSV/Excel",
+        label=f"📥 Download {selected_type} Formatted Report as CSV/Excel",
         data=d_csv,
-        file_name=f"{selected_type.lower()}_summary.csv",
+        file_name=f"{selected_type.lower()}_detailed_report.csv",
         mime="text/csv",
     )
 
     st.markdown(f"### 📋 {selected_type} Records")
     if not filtered_view_df.empty:
-      st.dataframe(
-          filtered_view_df[
-              [
-                  "ID",
-                  "Date",
-                  "Location",
-                  "Sub-Category",
-                  "Amount",
-                  "Payment_Mode",
-                  "Remarks",
-              ]
-          ],
-          use_container_width=True,
-      )
+      st.dataframe(filtered_view_df[d_export.columns], use_container_width=True)
 
       st.markdown("### 📊 Category & Payment Mode Wise Breakdown")
       col_b1, col_b2 = st.columns(2)
@@ -783,11 +887,10 @@ elif choice == "Manage Credit Cards (Dates)":
       "💳 क्रेडिट कार्ड बिलिंग और ड्यू डेट मैनेजर (Credit Card Date Setup)"
   )
   st.write(
-      "यहाँ आप अपने सभी क्रेडिट कार्ड्स की **Billing Date** (बिल बनने की तारीख)"
-      " और **Due Date** (पेमेंट की आखिरी तारीख) सेट या अपडेट कर सकते हैं।"
+      "यहाँ आप अपने सभी क्रेडिट कार्ड्स की **Billing Date** और **Due Date** सेट"
+      " या अपडेट कर सकते हैं।"
   )
 
-  # Add new card option
   with st.expander("➕ नया क्रेडिट कार्ड जोड़ें"):
     with st.form("add_cc_form"):
       new_card_name = st.text_input("Card Name (जैसे: HDFC - XXXX)")
@@ -808,14 +911,13 @@ elif choice == "Manage Credit Cards (Dates)":
                 (new_card_name.strip(), b_date, d_date),
             )
             conn.commit()
-            st.success(f"카드 '{new_card_name}' सफलतापूर्वक जुड़ गया!")
+            st.success(f"कार्ड '{new_card_name}' सफलतापूर्वक जुड़ गया!")
             st.rerun()
           except:
             st.error("यह कार्ड पहले से मौजूद है!")
         else:
           st.error("कृपया कार्ड का नाम दर्ज करें!")
 
-  # View and Edit existing cards
   cursor.execute(
       "SELECT id, card_name, billing_date, due_date FROM credit_cards"
   )
@@ -834,7 +936,6 @@ elif choice == "Manage Credit Cards (Dates)":
         "Choose Card to Update", cc_df["Card Name"].tolist()
     )
 
-    # get current values
     cursor.execute(
         "SELECT billing_date, due_date FROM credit_cards WHERE card_name = ?",
         (selected_card_to_edit,),
@@ -849,7 +950,10 @@ elif choice == "Manage Credit Cards (Dates)":
           value=int(curr_b),
       )
       up_d = st.number_input(
-          "New Due Date", min_value=1, max_value=31, value=int(curr_d)
+          "New Due Date",
+          min_value=1,
+          max_value=31,
+          value=int(curr_d),
       )
       up_btn = st.form_submit_button("Update Card Dates")
 
@@ -867,3 +971,100 @@ elif choice == "Manage Credit Cards (Dates)":
         st.rerun()
   else:
     st.info("कोई क्रेडिट कार्ड दर्ज नहीं है।")
+
+# ----------------- 6. MANAGE LOANS & LIC (RECURRING PAYMENTS) -----------------
+elif choice == "Manage Loans & LIC":
+  st.subheader(
+      "🏦 लोन और LIC / वार्षिक भुगतान मैनेजर (Loans & LIC Date Manager)"
+  )
+  st.write(
+      "यहाँ आप अपने सभी मासिक (Monthly) लोन ईएमआई और वार्षिक (Yearly) LIC या"
+      " अन्य भुगतानों को जोड़ और मैनेज कर सकते हैं।"
+  )
+
+  with st.expander("➕ नया लोन या LIC जोड़ें"):
+    with st.form("add_rec_form"):
+      r_name = st.text_input("Name (जैसे: Kotak Loan, LIC Policy No...)")
+      r_type = st.selectbox("Type", ["Loan", "LIC", "Insurance", "Other"])
+      r_amount = st.number_input(
+          "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
+      )
+      r_freq = st.selectbox("Frequency", ["Monthly", "Yearly"])
+      r_day = st.number_input(
+          "Due Day of Month (1-31)", min_value=1, max_value=31, value=2
+      )
+
+      r_month = 0
+      if r_freq == "Yearly":
+        r_month = st.number_input(
+            "Due Month (1-12)", min_value=1, max_value=12, value=1
+        )
+
+      r_pmode = st.selectbox(
+          "Payment Mode", ["Net Banking", "Auto Debit", "UPI", "Cash", "Other"]
+      )
+      add_rec_btn = st.form_submit_button("Save Recurring Payment")
+
+      if add_rec_btn:
+        if r_name.strip() and r_amount > 0:
+          try:
+            cursor.execute(
+                "INSERT INTO recurring_payments (item_name, payment_type,"
+                " amount, frequency, due_day, due_month, payment_mode) VALUES"
+                " (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    r_name.strip(),
+                    r_type,
+                    r_amount,
+                    r_freq,
+                    r_day,
+                    r_month,
+                    r_pmode,
+                ),
+            )
+            conn.commit()
+            st.success(f"'{r_name}' सफलतापूर्वक जोड़ दिया गया!")
+            st.rerun()
+          except:
+            st.error("यह नाम पहले से मौजूद है!")
+        else:
+          st.error("कृपया सही नाम और राशि दर्ज करें!")
+
+  cursor.execute(
+      "SELECT id, item_name, payment_type, amount, frequency, due_day,"
+      " due_month, payment_mode FROM recurring_payments"
+  )
+  rec_records = cursor.fetchall()
+
+  if rec_records:
+    st.markdown("### 📋 आपके सभी लोन और LIC की सूचियाँ")
+    rec_df = pd.DataFrame(
+        rec_records,
+        columns=[
+            "ID",
+            "Name",
+            "Type",
+            "Amount (Rs)",
+            "Frequency",
+            "Due Day",
+            "Due Month",
+            "Payment Mode",
+        ],
+    )
+    st.dataframe(rec_df, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### 🗑️ कोई लोन या LIC हटाएं")
+    del_rec_id = st.number_input(
+        "Enter ID to Delete", min_value=0, step=1, key="del_rec"
+    )
+    if st.button("Delete Entry", key="del_rec_btn"):
+      if del_rec_id > 0:
+        cursor.execute(
+            "DELETE FROM recurring_payments WHERE id = ?", (del_rec_id,)
+        )
+        conn.commit()
+        st.success(f"ID {del_rec_id} सफलतापूर्वक हटा दिया गया!")
+        st.rerun()
+  else:
+    st.info("कोई लोन या LIC दर्ज नहीं है।")
