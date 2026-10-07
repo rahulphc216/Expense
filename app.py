@@ -41,7 +41,7 @@ def init_db():
         )
     """)
 
-  # Loans & LIC (Recurring Payments) table
+  # Loans & LIC (Recurring Payments) table (Added last_paid_period column)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS recurring_payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,7 +51,8 @@ def init_db():
             frequency TEXT,
             due_day INTEGER,
             due_month INTEGER,
-            payment_mode TEXT
+            payment_mode TEXT,
+            last_paid_period TEXT DEFAULT ''
         )
     """)
 
@@ -67,6 +68,14 @@ def init_db():
   if "last_paid_month" not in cc_columns:
     cursor.execute(
         "ALTER TABLE credit_cards ADD COLUMN last_paid_month TEXT DEFAULT ''"
+    )
+
+  cursor.execute("PRAGMA table_info(recurring_payments)")
+  rec_columns = [col[1] for col in cursor.fetchall()]
+  if "last_paid_period" not in rec_columns:
+    cursor.execute(
+        "ALTER TABLE recurring_payments ADD COLUMN last_paid_period TEXT DEFAULT"
+        " ''"
     )
 
   conn.commit()
@@ -112,13 +121,22 @@ if cursor.fetchone()[0] == 0:
 cursor.execute("SELECT COUNT(*) FROM recurring_payments")
 if cursor.fetchone()[0] == 0:
   initial_recurring = [
-      ("Kotak Bank Loan EMI", "Loan", 10051.0, "Monthly", 2, 0, "Net Banking"),
-      ("HDFC Bank Loan EMI", "Loan", 47809.0, "Monthly", 6, 0, "Net Banking"),
+      (
+          "Kotak Bank Loan EMI",
+          "Loan",
+          10051.0,
+          "Monthly",
+          2,
+          0,
+          "Net Banking",
+          "",
+      ),
+      ("HDFC Bank Loan EMI", "Loan", 47809.0, "Monthly", 6, 0, "Net Banking", ""),
   ]
   cursor.executemany(
       "INSERT OR IGNORE INTO recurring_payments (item_name, payment_type,"
-      " amount, frequency, due_day, due_month, payment_mode) VALUES (?, ?, ?,"
-      " ?, ?, ?, ?)",
+      " amount, frequency, due_day, due_month, payment_mode, last_paid_period)"
+      " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       initial_recurring,
   )
   conn.commit()
@@ -154,28 +172,65 @@ st.write(
     " आय-व्यय का पूरा हिसाब रखें।"
 )
 
-# ----------------- SMART 7-DAY DUE DATE RED ALERT (ONLY IF BALANCE/TRANSACTION > 0) -----------------
+# ----------------- SMART ALERTS WITH AUTO-DETECT FOR CC & LOANS/LIC -----------------
 today = datetime.now()
 current_day = today.day
 current_month = today.month
 current_year = today.year
 current_month_str = today.strftime("%Y-%m")
+current_year_str = str(current_year)
 
+# 1. Auto-detect Credit Card payments from transactions
 cursor.execute(
-    "SELECT payment_mode, remarks FROM transactions WHERE date LIKE ?",
+    "SELECT payment_mode FROM transactions WHERE date LIKE ?",
     (f"{current_month_str}%",),
 )
 trans_rows = cursor.fetchall()
 
-for t_mode, t_remarks in trans_rows:
+for (t_mode,) in trans_rows:
   if t_mode and t_mode.startswith("CC:"):
     card_n = t_mode.replace("CC: ", "").strip()
     cursor.execute(
         "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
         (current_month_str, card_n),
     )
+
+# 2. Auto-detect Loans & LIC payments from transactions (matching remarks or sub_category/item name)
+cursor.execute(
+    "SELECT sub_category, remarks, amount FROM transactions WHERE date LIKE ?",
+    (f"{current_month_str}%",),
+)
+all_trans = cursor.fetchall()
+
+cursor.execute(
+    "SELECT id, item_name, frequency, due_month FROM recurring_payments"
+)
+rec_items = cursor.fetchall()
+
+for r_id, i_name, freq, d_mon in rec_items:
+  paid_matched = False
+  for sub_c, rem, amt in all_trans:
+    # Check if item name is mentioned in remarks or sub_category
+    if (i_name.lower() in str(sub_c).lower()) or (
+        i_name.lower() in str(rem).lower()
+    ):
+      paid_matched = True
+      break
+
+  if paid_matched:
+    if freq == "Monthly":
+      paid_period_val = current_month_str  # e.g., '2026-10'
+    else:
+      paid_period_val = current_year_str  # e.g., '2026'
+
+    cursor.execute(
+        "UPDATE recurring_payments SET last_paid_period = ? WHERE id = ?",
+        (paid_period_val, r_id),
+    )
+
 conn.commit()
 
+# Calculate exact card-wise expense for current month
 cursor.execute(
     "SELECT payment_mode, amount FROM transactions WHERE date LIKE ? AND"
     " payment_mode LIKE 'CC:%'",
@@ -215,13 +270,21 @@ for c_name, d_date, l_paid in all_cards_for_alert:
   except:
     pass
 
+# Check recurring payments alerts (Loans & LIC)
 cursor.execute(
-    "SELECT item_name, payment_type, amount, frequency, due_day, due_month,"
-    " payment_mode FROM recurring_payments"
+    "SELECT id, item_name, payment_type, amount, frequency, due_day,"
+    " due_month, payment_mode, last_paid_period FROM recurring_payments"
 )
 rec_payments = cursor.fetchall()
 
-for item_name, p_type, amt, freq, d_day, d_mon, p_mode in rec_payments:
+for r_id, item_name, p_type, amt, freq, d_day, d_mon, p_mode, l_paid_per in (
+    rec_payments
+):
+  if freq == "Monthly" and l_paid_per == current_month_str:
+    continue
+  if freq == "Yearly" and l_paid_per == current_year_str:
+    continue
+
   try:
     if freq == "Monthly":
       due_dt = datetime(current_year, current_month, int(d_day))
@@ -232,14 +295,17 @@ for item_name, p_type, amt, freq, d_day, d_mon, p_mode in rec_payments:
             f" Date **{d_day} तारीख** को है! ({days_left} दिन बाकी)"
         )
     elif freq == "Yearly":
-      month_name = datetime(2026, int(d_mon), 1).strftime("%B")
-      due_dt = datetime(current_year, int(d_mon), int(d_day))
-      days_left = (due_dt - today).days
-      if 0 <= days_left <= 7:
-        alerts.append(
-            f"⚠️ **Upcoming Yearly {p_type}:** '{item_name}' (Rs {amt:,.0f}) की"
-            f" Due Date **{d_day} {month_name}** को है! ({days_left} दिन बाकी)"
-        )
+      # check if current month matches due_month
+      if current_month == int(d_mon):
+        month_name = datetime(2026, int(d_mon), 1).strftime("%B")
+        due_dt = datetime(current_year, int(d_mon), int(d_day))
+        days_left = (due_dt - today).days
+        if 0 <= days_left <= 7:
+          alerts.append(
+              f"⚠️ **Upcoming Yearly {p_type}:** '{item_name}' (Rs {amt:,.0f})"
+              f" की Due Date **{d_day} {month_name}** को है! ({days_left} दिन"
+              f" बाकी)"
+          )
   except:
     pass
 
@@ -1078,7 +1144,8 @@ elif choice == "Manage Loans & LIC":
   )
   st.write(
       "यहाँ आप अपने सभी मासिक (Monthly) लोन ईएमआई और वार्षिक (Yearly) LIC या"
-      " अन्य भुगतानों को जोड़ और मैनेज कर सकते हैं।"
+      " अन्य भुगतानों को जोड़ और मैनेज कर सकते हैं। साथ ही 'Mark as Paid' से"
+      " अलर्ट हटा सकते हैं।"
   )
 
   with st.expander("➕ नया लोन या LIC जोड़ें"):
@@ -1144,8 +1211,8 @@ elif choice == "Manage Loans & LIC":
         if r_name.strip() and r_amount > 0:
           cursor.execute(
               "INSERT INTO recurring_payments (item_name, payment_type, amount,"
-              " frequency, due_day, due_month, payment_mode) VALUES (?, ?, ?,"
-              " ?, ?, ?, ?)",
+              " frequency, due_day, due_month, payment_mode, last_paid_period)"
+              " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
               (
                   r_name.strip(),
                   r_type,
@@ -1154,6 +1221,7 @@ elif choice == "Manage Loans & LIC":
                   r_day,
                   r_month,
                   r_pmode,
+                  "",
               ),
           )
           conn.commit()
@@ -1167,7 +1235,7 @@ elif choice == "Manage Loans & LIC":
 
   cursor.execute(
       "SELECT id, item_name, payment_type, amount, frequency, due_day,"
-      " due_month, payment_mode FROM recurring_payments"
+      " due_month, payment_mode, last_paid_period FROM recurring_payments"
   )
   rec_records = cursor.fetchall()
 
@@ -1184,6 +1252,7 @@ elif choice == "Manage Loans & LIC":
             "Due Day",
             "Due Month",
             "Payment Mode",
+            "Last Paid",
         ],
     )
     months_map = {
@@ -1204,6 +1273,46 @@ elif choice == "Manage Loans & LIC":
         lambda x: months_map.get(int(x), "-") if int(x) in months_map else "-"
     )
     st.dataframe(rec_df, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown(
+        "### ⚡ Quick Action: Mark Loan / LIC as Paid ("
+        + current_month_str
+        + " / "
+        + current_year_str
+        + ")"
+    )
+    rec_names_list = [r[1] for r in rec_records]
+    selected_rec_to_pay = st.selectbox(
+        "Select Loan / LIC to Mark Paid", rec_names_list, key="mark_rec_paid_sel"
+    )
+
+    # Find frequency of selected item to determine period format
+    cursor.execute(
+        "SELECT frequency FROM recurring_payments WHERE item_name = ?",
+        (selected_rec_to_pay,),
+    )
+    rec_freq_res = cursor.fetchone()
+    item_freq = rec_freq_res[0] if rec_freq_res else "Monthly"
+
+    if st.button("✅ Mark Loan/LIC as Paid (भुगतान हो गया)"):
+      paid_val = (
+          current_month_str if item_freq == "Monthly" else current_year_str
+      )
+      cursor.execute(
+          "UPDATE recurring_payments SET last_paid_period = ? WHERE item_name"
+          " = ?",
+          (paid_val, selected_rec_to_pay),
+      )
+      conn.commit()
+      success_ph = st.empty()
+      success_ph.success(
+          f"🎉 '{selected_rec_to_pay}' का भुगतान दर्ज हो गया है! अलर्ट हट गया"
+          " है।"
+      )
+      time.sleep(1.5)
+      success_ph.empty()
+      st.rerun()
 
     st.markdown("---")
     st.markdown("### 🗑️ कोई लोन या LIC हटाएं")
