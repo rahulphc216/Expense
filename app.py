@@ -105,14 +105,16 @@ if choice == "Add Transaction":
         "Others",
     ]
 
-  with st.form("transaction_form"):
+  with st.form("transaction_form", clear_on_submit=True):
     sub_cat = st.selectbox("Sub-Category", sub_cat_options)
 
     manual_cat = ""
     if sub_cat == "Others" or location == "Others":
       manual_cat = st.text_input("Type custom category name if Others")
 
-    amount = st.number_input("Amount (Rs)", min_value=0.0, format="%.2f")
+    amount = st.number_input(
+        "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
+    )
     remarks = st.text_area("Remarks (विवरण या नोट)")
 
     submit_button = st.form_submit_button(label="Save Transaction")
@@ -210,4 +212,3 @@ elif choice == "Reports & Dashboard":
         st.rerun()
   else:
     st.info("इस अवधि के लिए कोई डेटा उपलब्ध नहीं है।")
-      
