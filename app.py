@@ -29,7 +29,7 @@ def init_db():
         )
     """)
 
-  # Credit Card Management table (added last_paid_month column to auto-detect/mark as paid)
+  # Credit Card Management table
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS credit_cards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,7 +61,6 @@ def init_db():
         "ALTER TABLE transactions ADD COLUMN payment_mode TEXT DEFAULT 'Cash'"
     )
 
-  # Migration check for last_paid_month in credit_cards
   cursor.execute("PRAGMA table_info(credit_cards)")
   cc_columns = [col[1] for col in cursor.fetchall()]
   if "last_paid_month" not in cc_columns:
@@ -123,6 +122,22 @@ if cursor.fetchone()[0] == 0:
   )
   conn.commit()
 
+
+# Helper function to get sorted credit card list
+def get_sorted_cc_list(cursor):
+  cursor.execute("SELECT card_name FROM credit_cards")
+  raw_rows = cursor.fetchall()
+  raw_list = [r[0] for r in raw_rows]
+
+  # Desired specific sequence at the top
+  preferred = ["ICICI - 6009", "ICICI - 9003", "Axis Bank - 5302"]
+  sorted_list = [c for c in preferred if c in raw_list]
+  for c in raw_list:
+    if c not in sorted_list:
+      sorted_list.append(c)
+  return sorted_list
+
+
 # title & developer branding
 col1, col2 = st.columns([3, 2])
 with col1:
@@ -146,7 +161,6 @@ current_month = today.month
 current_year = today.year
 current_month_str = today.strftime("%Y-%m")
 
-# Auto-detect payments: Check if any transaction in current month mentions CC payment
 cursor.execute(
     "SELECT payment_mode, remarks FROM transactions WHERE date LIKE ?",
     (f"{current_month_str}%",),
@@ -156,21 +170,19 @@ trans_rows = cursor.fetchall()
 for t_mode, t_remarks in trans_rows:
   if t_mode and t_mode.startswith("CC:"):
     card_n = t_mode.replace("CC: ", "").strip()
-    # Mark this card as paid for current month automatically
     cursor.execute(
         "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
         (current_month_str, card_n),
     )
 conn.commit()
 
-# Check alerts for cards not paid this month
 cursor.execute("SELECT card_name, due_date, last_paid_month FROM credit_cards")
 all_cards_for_alert = cursor.fetchall()
 
 alerts = []
 for c_name, d_date, l_paid in all_cards_for_alert:
   if l_paid == current_month_str:
-    continue  # Already paid for this month, skip alert
+    continue
 
   try:
     due_dt = datetime(current_year, current_month, int(d_date))
@@ -188,7 +200,6 @@ for c_name, d_date, l_paid in all_cards_for_alert:
   except:
     pass
 
-# Check recurring payments alerts (Loans & LIC)
 cursor.execute(
     "SELECT item_name, payment_type, amount, frequency, due_day, due_month,"
     " payment_mode FROM recurring_payments"
@@ -221,7 +232,6 @@ if alerts:
   for alert in alerts:
     st.markdown(alert)
 
-# Fetch current month summary for dashboard overview
 cursor.execute(
     "SELECT type, amount, payment_mode FROM transactions WHERE date LIKE ?",
     (f"{current_month_str}%",),
@@ -234,7 +244,6 @@ m_cc_expense = sum(
 )
 m_net = m_income - m_expense
 
-# Top Dashboard Summary Cards
 st.markdown("### 📌 इस महीने का ओवरव्यू (Current Month Dashboard)")
 d1, d2, d3, d4 = st.columns(4)
 d1.metric("Income", f"Rs {m_income:,.0f}")
@@ -244,7 +253,6 @@ d4.metric("CC Expense", f"Rs {m_cc_expense:,.0f}")
 
 st.markdown("---")
 
-# menu selection
 menu = [
     "Add Transaction",
     "Reports & Dashboard",
@@ -335,10 +343,7 @@ if choice == "Add Transaction":
   final_payment_mode = base_payment_mode
 
   if base_payment_mode == "Credit Card":
-    cursor.execute("SELECT card_name FROM credit_cards")
-    cc_db_rows = cursor.fetchall()
-    cc_list = [row[0] for row in cc_db_rows]
-
+    cc_list = get_sorted_cc_list(cursor)
     credit_card_choice = st.selectbox(
         "Select Credit Card", cc_list, key="add_cc_choice"
     )
@@ -868,10 +873,7 @@ elif choice == "Edit Transaction":
 
     final_edit_pay_mode = new_pay_mode
     if new_pay_mode == "Credit Card":
-      cursor.execute("SELECT card_name FROM credit_cards")
-      cc_db_rows = cursor.fetchall()
-      cc_list = [row[0] for row in cc_db_rows]
-
+      cc_list = get_sorted_cc_list(cursor)
       cc_index = 0
       extracted_card = r_pay_mode.replace("CC: ", "")
       if extracted_card in cc_list:
@@ -971,7 +973,7 @@ elif choice == "Manage Credit Cards (Dates)":
         + current_month_str
         + ")"
     )
-    card_names_list = [r[1] for r in cc_records]
+    card_names_list = get_sorted_cc_list(cursor)
     selected_card_to_pay = st.selectbox(
         "Select Card to Mark Paid", card_names_list, key="mark_paid_sel"
     )
