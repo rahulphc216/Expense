@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import sqlite3
 import pandas as pd
 import streamlit as st
+import time
 
 # page setting
 st.set_page_config(
@@ -44,7 +45,7 @@ def init_db():
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS recurring_payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_name TEXT UNIQUE,
+            item_name TEXT,
             payment_type TEXT,
             amount REAL,
             frequency TEXT,
@@ -231,12 +232,13 @@ for item_name, p_type, amt, freq, d_day, d_mon, p_mode in rec_payments:
             f" Date **{d_day} तारीख** को है! ({days_left} दिन बाकी)"
         )
     elif freq == "Yearly":
+      month_name = datetime(2026, int(d_mon), 1).strftime("%B")
       due_dt = datetime(current_year, int(d_mon), int(d_day))
       days_left = (due_dt - today).days
       if 0 <= days_left <= 7:
         alerts.append(
             f"⚠️ **Upcoming Yearly {p_type}:** '{item_name}' (Rs {amt:,.0f}) की"
-            f" Due Date **{d_day}-{d_mon}** को है! ({days_left} दिन बाकी)"
+            f" Due Date **{d_day} {month_name}** को है! ({days_left} दिन बाकी)"
         )
   except:
     pass
@@ -393,7 +395,10 @@ if choice == "Add Transaction":
             ),
         )
         conn.commit()
-        st.success("🎉 लेनदेन सफलतापूर्वक सुरक्षित हो गया!")
+        success_ph = st.empty()
+        success_ph.success("🎉 लेनदेन सफलतापूर्वक सुरक्षित हो गया!")
+        time.sleep(1.5)
+        success_ph.empty()
         st.rerun()
 
 # ----------------- 2. REPORT & DASHBOARD SECTION -----------------
@@ -626,7 +631,10 @@ elif choice == "Reports & Dashboard":
       if del_id > 0:
         cursor.execute("DELETE FROM transactions WHERE id = ?", (del_id,))
         conn.commit()
-        st.success(f"ID {del_id} सफलतापूर्वक हटा दिया गया!")
+        success_ph = st.empty()
+        success_ph.success(f"ID {del_id} सफलतापूर्वक हटा दिया गया!")
+        time.sleep(1.5)
+        success_ph.empty()
         st.rerun()
   else:
     st.info("डेटाबेस में अभी कोई लेनदेन दर्ज नहीं है।")
@@ -929,9 +937,10 @@ elif choice == "Edit Transaction":
             ),
         )
         conn.commit()
-        st.success(
-            f"🎉 Transaction ID {edit_id} सफलतापूर्वक अपडेट हो गया!"
-        )
+        success_ph = st.empty()
+        success_ph.success(f"🎉 Transaction ID {edit_id} सफलतापूर्वक अपडेट हो गया!")
+        time.sleep(1.5)
+        success_ph.empty()
         st.rerun()
   else:
     st.warning("दर्ज की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
@@ -967,7 +976,10 @@ elif choice == "Manage Credit Cards (Dates)":
                 (new_card_name.strip(), b_date, d_date, ""),
             )
             conn.commit()
-            st.success(f"कार्ड '{new_card_name}' सफलतापूर्वक जुड़ गया!")
+            success_ph = st.empty()
+            success_ph.success(f"कार्ड '{new_card_name}' सफलतापूर्वक जुड़ गया!")
+            time.sleep(1.5)
+            success_ph.empty()
             st.rerun()
           except:
             st.error("यह कार्ड पहले से मौजूद है!")
@@ -1005,10 +1017,13 @@ elif choice == "Manage Credit Cards (Dates)":
           (current_month_str, selected_card_to_pay),
       )
       conn.commit()
-      st.success(
+      success_ph = st.empty()
+      success_ph.success(
           f"🎉 कार्ड '{selected_card_to_pay}' को इस महीने के लिए Paid मार्क कर"
           " दिया गया है! अलर्ट हट गया है।"
       )
+      time.sleep(1.5)
+      success_ph.empty()
       st.rerun()
 
     st.markdown("---")
@@ -1045,10 +1060,13 @@ elif choice == "Manage Credit Cards (Dates)":
             (up_b, up_d, selected_card_to_edit),
         )
         conn.commit()
-        st.success(
+        success_ph = st.empty()
+        success_ph.success(
             f"🎉 कार्ड '{selected_card_to_edit}' की तारीखें सफलतापूर्वक अपडेट"
             " हो गईं!"
         )
+        time.sleep(1.5)
+        success_ph.empty()
         st.rerun()
   else:
     st.info("कोई क्रेडिट कार्ड दर्ज नहीं है।")
@@ -1064,7 +1082,6 @@ elif choice == "Manage Loans & LIC":
   )
 
   with st.expander("➕ नया लोन या LIC जोड़ें"):
-    # Using radio outside form to trigger instant UI refresh when frequency changes
     r_freq = st.radio("Frequency", ["Monthly", "Yearly"], horizontal=True)
 
     with st.form("add_rec_form", clear_on_submit=True):
@@ -1078,11 +1095,38 @@ elif choice == "Manage Loans & LIC":
       r_day = 2
 
       if r_freq == "Yearly":
-        r_month = st.selectbox(
+        r_month_name = st.selectbox(
             "Due Month (महीना चुनें)",
-            list(range(1, 13)),
-            format_func=lambda x: datetime(2026, x, 1).strftime("%B"),
+            [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ],
         )
+        months_dict = {
+            "January": 1,
+            "February": 2,
+            "March": 3,
+            "April": 4,
+            "May": 5,
+            "June": 6,
+            "July": 7,
+            "August": 8,
+            "September": 9,
+            "October": 10,
+            "November": 11,
+            "December": 12,
+        }
+        r_month = months_dict[r_month_name]
         r_day = st.number_input(
             "Due Date / Day (तारीख: 1-31)", min_value=1, max_value=31, value=1
         )
@@ -1098,26 +1142,26 @@ elif choice == "Manage Loans & LIC":
 
       if add_rec_btn:
         if r_name.strip() and r_amount > 0:
-          try:
-            cursor.execute(
-                "INSERT INTO recurring_payments (item_name, payment_type,"
-                " amount, frequency, due_day, due_month, payment_mode) VALUES"
-                " (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    r_name.strip(),
-                    r_type,
-                    r_amount,
-                    r_freq,
-                    r_day,
-                    r_month,
-                    r_pmode,
-                ),
-            )
-            conn.commit()
-            st.success(f"'{r_name}' सफलतापूर्वक जोड़ दिया गया!")
-            st.rerun()
-          except:
-            st.error("यह नाम पहले से मौजूद है!")
+          cursor.execute(
+              "INSERT INTO recurring_payments (item_name, payment_type, amount,"
+              " frequency, due_day, due_month, payment_mode) VALUES (?, ?, ?,"
+              " ?, ?, ?, ?)",
+              (
+                  r_name.strip(),
+                  r_type,
+                  r_amount,
+                  r_freq,
+                  r_day,
+                  r_month,
+                  r_pmode,
+              ),
+          )
+          conn.commit()
+          success_ph = st.empty()
+          success_ph.success(f"'{r_name}' सफलतापूर्वक जोड़ दिया गया!")
+          time.sleep(1.5)
+          success_ph.empty()
+          st.rerun()
         else:
           st.error("कृपया सही नाम और राशि दर्ज करें!")
 
@@ -1142,6 +1186,23 @@ elif choice == "Manage Loans & LIC":
             "Payment Mode",
         ],
     )
+    months_map = {
+        1: "Jan",
+        2: "Feb",
+        3: "Mar",
+        4: "Apr",
+        5: "May",
+        6: "Jun",
+        7: "Jul",
+        8: "Aug",
+        9: "Sep",
+        10: "Oct",
+        11: "Nov",
+        12: "Dec",
+    }
+    rec_df["Due Month"] = rec_df["Due Month"].apply(
+        lambda x: months_map.get(int(x), "-") if int(x) in months_map else "-"
+    )
     st.dataframe(rec_df, use_container_width=True)
 
     st.markdown("---")
@@ -1155,7 +1216,10 @@ elif choice == "Manage Loans & LIC":
             "DELETE FROM recurring_payments WHERE id = ?", (del_rec_id,)
         )
         conn.commit()
-        st.success(f"ID {del_rec_id} सफलतापूर्वक हटा दिया गया!")
+        success_ph = st.empty()
+        success_ph.success(f"ID {del_rec_id} सफलतापूर्वक हटा दिया गया!")
+        time.sleep(1.5)
+        success_ph.empty()
         st.rerun()
   else:
     st.info("कोई लोन या LIC दर्ज नहीं है।")
