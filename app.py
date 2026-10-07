@@ -32,7 +32,17 @@ def init_db():
 conn = init_db()
 cursor = conn.cursor()
 
-st.title("💰 Kharcha Paani")
+# होम पेज पर टाइटल और डेवलपर का नाम एक ही लाइन या बगल में दिखाने के लिए
+col1, col2 = st.columns([3, 2])
+with col1:
+  st.title("💰 Kharcha Paani")
+with col2:
+  st.markdown(
+      "<p style='text-align: right; color: gray; margin-top: 20px;'><i>Developed"
+      " & Designed by Rahul</i></p>",
+      unsafe_allow_html=True,
+  )
+
 st.write(
     "अपने दैनिक, मासिक और वार्षिक आय-व्यय (Income & Expense) का पूरा हिसाब रखें।"
 )
@@ -45,7 +55,6 @@ choice = st.sidebar.selectbox("Menu", menu)
 if choice == "Add Transaction":
   st.subheader("📝 नया लेनदेन दर्ज करें (Add New Entry)")
 
-  # फॉर्म के बाहर टाइप और लोकेशन रखेंगे ताकि तुरंत स्क्रीन अपडेट हो सके
   t_type = st.selectbox("Type", ["Expense", "Income"])
 
   location = "Income Source"
@@ -201,3 +210,4 @@ elif choice == "Reports & Dashboard":
         st.rerun()
   else:
     st.info("इस अवधि के लिए कोई डेटा उपलब्ध नहीं है।")
+      
