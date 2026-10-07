@@ -1071,14 +1071,23 @@ elif choice == "Manage Loans & LIC":
           "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
       )
       r_freq = st.selectbox("Frequency", ["Monthly", "Yearly"])
-      r_day = st.number_input(
-          "Due Day of Month (1-31)", min_value=1, max_value=31, value=2
-      )
 
       r_month = 0
+      r_day = 2
+
       if r_freq == "Yearly":
         r_month = st.number_input(
-            "Due Month (1-12)", min_value=1, max_value=12, value=1
+            "Due Month (महीना चुनें: 1=Jan, 2=Feb ... 12=Dec)",
+            min_value=1,
+            max_value=12,
+            value=1,
+        )
+        r_day = st.number_input(
+            "Due Date / Day (तारीख: 1-31)", min_value=1, max_value=31, value=1
+        )
+      else:
+        r_day = st.number_input(
+            "Due Day of Month (तारीख: 1-31)", min_value=1, max_value=31, value=2
         )
 
       r_pmode = st.selectbox(
