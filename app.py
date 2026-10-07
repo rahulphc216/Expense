@@ -30,7 +30,7 @@ def init_db():
   columns = [col[1] for col in cursor.fetchall()]
   if "payment_mode" not in columns:
     cursor.execute(
-        "ALTER TABLE transactions ADD COLUMN payment_mode TEXT DEFAULT 'UPI'"
+        "ALTER TABLE transactions ADD COLUMN payment_mode TEXT DEFAULT 'Cash'"
     )
   conn.commit()
   return conn
@@ -76,17 +76,20 @@ if choice == "Add Transaction":
     if location == "Patna":
       sub_cat_options = [
           "Room Misc.",
+          "Room Rishi",
           "Office",
           "Room Rent",
           "Loan/LIC",
           "Self",
           "Room Others",
-          "Room Rishi",
           "Lagguage",
           "Others",
       ]
     elif location == "Barhiya":
       sub_cat_options = [
+          "Vegetable",
+          "Fruit",
+          "Medicine",
           "Chhotu",
           "Breakfast Market",
           "Pagla Shop",
@@ -128,15 +131,14 @@ if choice == "Add Transaction":
       "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0, key="add_amount"
   )
 
+  # Payment mode order: Cash first, Credit Card second, then others
+  pay_modes = ["Cash", "Credit Card", "UPI", "Debit Card", "Net Banking", "Other"]
   base_payment_mode = st.selectbox(
-      "Payment Mode",
-      ["UPI", "Credit Card", "Debit Card", "Cash", "Net Banking", "Other"],
-      key="add_paymode",
+      "Payment Mode", pay_modes, key="add_paymode"
   )
 
   final_payment_mode = base_payment_mode
 
-  # If Credit Card is selected, show specific card options right outside form for reactivity
   if base_payment_mode == "Credit Card":
     cc_list = [
         "ICICI - 6009",
@@ -469,7 +471,7 @@ elif choice == "Edit Transaction":
         key="edit_amount",
     )
 
-    pay_modes = ["UPI", "Credit Card", "Debit Card", "Cash", "Net Banking", "Other"]
+    pay_modes = ["Cash", "Credit Card", "UPI", "Debit Card", "Net Banking", "Other"]
     default_pay_idx = 0
     if r_pay_mode.startswith("CC: "):
       default_pay_idx = 1
@@ -536,7 +538,9 @@ elif choice == "Edit Transaction":
             ),
         )
         conn.commit()
-        st.success(f"🎉 Transaction ID {edit_id} सफलतापूर्वक अपडेट हो गया!")
+        st.success(
+            f"🎉 Transaction ID {edit_id} सफलतापूर्वक अपडेट हो गया!"
+        )
         st.rerun()
   else:
     st.warning("दर्ज की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
