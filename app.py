@@ -52,7 +52,7 @@ with col2:
   )
 
 st.write(
-    "अपने दैनिक, मासिक, वार्षिक और भुगतान के माध्यम (Payment Mode) के हिसाब से"
+    "अपने दैनिक, मासिक, वार्षिक और क्रेडिट कार्ड / भुगतान माध्यम के हिसाब से"
     " आय-व्यय का पूरा हिसाब रखें।"
 )
 
@@ -128,10 +128,40 @@ if choice == "Add Transaction":
         "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
     )
 
-    payment_mode = st.selectbox(
+    base_payment_mode = st.selectbox(
         "Payment Mode",
         ["UPI", "Credit Card", "Debit Card", "Cash", "Net Banking", "Other"],
     )
+
+    final_payment_mode = base_payment_mode
+
+    # If Credit Card is selected, show specific card options
+    credit_card_choice = ""
+    if base_payment_mode == "Credit Card":
+      cc_list = [
+          "HDFC - 9659",
+          "HDFC - 0152",
+          "ICICI - 6009",
+          "ICICI - 9003",
+          "ICICI - 5000",
+          "ICICI - 7006",
+          "SBI - 0160",
+          "SBI - 2592",
+          "SBI - 9183",
+          "Yes Bank - 5409",
+          "Yes Bank - 8111",
+          "Axis Bank - 2718",
+          "Axis Bank - 7535",
+          "Axis Bank - 5302",
+          "IndusInd Bank - 7035",
+          "IndusInd Bank - 0737",
+          "IDFC Bank - 5258",
+          "IDFC Bank - 4878",
+          "IDFC Bank - 9239",
+          "Other Credit Card",
+      ]
+      credit_card_choice = st.selectbox("Select Credit Card", cc_list)
+      final_payment_mode = f"CC: {credit_card_choice}"
 
     remarks = st.text_area("Remarks (विवरण या नोट)")
 
@@ -157,7 +187,7 @@ if choice == "Add Transaction":
                 final_sub_cat,
                 final_sub_cat,
                 amount,
-                payment_mode,
+                final_payment_mode,
                 remarks,
             ),
         )
@@ -437,12 +467,50 @@ elif choice == "Edit Transaction":
           "Net Banking",
           "Other",
       ]
-      try:
-        pay_index = pay_modes.index(r_pay_mode)
-      except:
-        pay_index = 0
+      # Try to see if it starts with CC
+      default_pay_idx = 0
+      if r_pay_mode.startswith("CC: "):
+        default_pay_idx = 1  # Credit card index
 
-      new_pay_mode = st.selectbox("Payment Mode", pay_modes, index=pay_index)
+      new_pay_mode = st.selectbox(
+          "Payment Mode", pay_modes, index=default_pay_idx
+      )
+
+      final_edit_pay_mode = new_pay_mode
+      if new_pay_mode == "Credit Card":
+        cc_list = [
+            "HDFC - 9659",
+            "HDFC - 0152",
+            "ICICI - 6009",
+            "ICICI - 9003",
+            "ICICI - 5000",
+            "ICICI - 7006",
+            "SBI - 0160",
+            "SBI - 2592",
+            "SBI - 9183",
+            "Yes Bank - 5409",
+            "Yes Bank - 8111",
+            "Axis Bank - 2718",
+            "Axis Bank - 7535",
+            "Axis Bank - 5302",
+            "IndusInd Bank - 7035",
+            "IndusInd Bank - 0737",
+            "IDFC Bank - 5258",
+            "IDFC Bank - 4878",
+            "IDFC Bank - 9239",
+            "Other Credit Card",
+        ]
+        # find index if previous was CC
+        cc_index = 0
+        extracted_card = r_pay_mode.replace("CC: ", "")
+        if extracted_card in cc_list:
+          cc_index = cc_list.index(extracted_card)
+
+        selected_cc_edit = st.selectbox(
+            "Select Credit Card", cc_list, index=cc_index
+        )
+        final_edit_pay_mode = f"CC: {selected_cc_edit}"
+
       new_remarks = st.text_area("Remarks", value=r_remarks)
 
       update_btn = st.form_submit_button("Update Transaction")
@@ -463,7 +531,7 @@ elif choice == "Edit Transaction":
                   new_sub_cat,
                   new_sub_cat,
                   new_amount,
-                  new_pay_mode,
+                  final_edit_pay_mode,
                   new_remarks,
                   edit_id,
               ),
