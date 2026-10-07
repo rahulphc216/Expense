@@ -1064,23 +1064,24 @@ elif choice == "Manage Loans & LIC":
   )
 
   with st.expander("➕ नया लोन या LIC जोड़ें"):
+    # Using radio outside form to trigger instant UI refresh when frequency changes
+    r_freq = st.radio("Frequency", ["Monthly", "Yearly"], horizontal=True)
+
     with st.form("add_rec_form", clear_on_submit=True):
       r_name = st.text_input("Name (जैसे: Kotak Loan, LIC Policy No...)")
       r_type = st.selectbox("Type", ["Loan", "LIC", "Insurance", "Other"])
       r_amount = st.number_input(
           "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
       )
-      r_freq = st.selectbox("Frequency", ["Monthly", "Yearly"])
 
       r_month = 0
       r_day = 2
 
       if r_freq == "Yearly":
-        r_month = st.number_input(
-            "Due Month (महीना चुनें: 1=Jan, 2=Feb ... 12=Dec)",
-            min_value=1,
-            max_value=12,
-            value=1,
+        r_month = st.selectbox(
+            "Due Month (महीना चुनें)",
+            list(range(1, 13)),
+            format_func=lambda x: datetime(2026, x, 1).strftime("%B"),
         )
         r_day = st.number_input(
             "Due Date / Day (तारीख: 1-31)", min_value=1, max_value=31, value=1
