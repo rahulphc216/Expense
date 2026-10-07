@@ -411,7 +411,7 @@ elif choice == "Edit Transaction":
 
     st.info(f"Editing Transaction ID: {r_id} (Date: {r_date})")
 
-    with st.form("edit_form"):
+    with st.form("edit_form", clear_on_submit=True):
       new_type = st.selectbox(
           "Type", ["Expense", "Income"], index=0 if r_type == "Expense" else 1
       )
@@ -469,7 +469,9 @@ elif choice == "Edit Transaction":
               ),
           )
           conn.commit()
-          st.success(f"🎉 Transaction ID {edit_id} सफलतापूर्वक अपडेट हो गया!")
+          st.success(
+              f"🎉 Transaction ID {edit_id} सफलतापूर्वक अपडेट हो गया!"
+          )
           st.rerun()
   else:
     st.warning("दर्ज की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
