@@ -13,6 +13,8 @@ st.set_page_config(
 def init_db():
   conn = sqlite3.connect("comprehensive_finance.db", check_same_thread=False)
   cursor = conn.cursor()
+
+  # Transactions table
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,18 +28,62 @@ def init_db():
             remarks TEXT
         )
     """)
+
+  # Credit Card Management table
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS credit_cards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_name TEXT UNIQUE,
+            billing_date INTEGER,
+            due_date INTEGER
+        )
+    """)
+
   cursor.execute("PRAGMA table_info(transactions)")
   columns = [col[1] for col in cursor.fetchall()]
   if "payment_mode" not in columns:
     cursor.execute(
         "ALTER TABLE transactions ADD COLUMN payment_mode TEXT DEFAULT 'Cash'"
     )
+
   conn.commit()
   return conn
 
 
 conn = init_db()
 cursor = conn.cursor()
+
+# Pre-populate credit cards if table is empty
+cursor.execute("SELECT COUNT(*) FROM credit_cards")
+if cursor.fetchone()[0] == 0:
+  initial_cards = [
+      ("ICICI - 6009", 1, 15),
+      ("ICICI - 9003", 1, 15),
+      ("Axis Bank - 5302", 1, 15),
+      ("HDFC - 9659", 1, 15),
+      ("HDFC - 0152", 1, 15),
+      ("ICICI - 5000", 1, 15),
+      ("ICICI - 7006", 1, 15),
+      ("SBI - 0160", 1, 15),
+      ("SBI - 2592", 1, 15),
+      ("SBI - 9183", 1, 15),
+      ("Yes Bank - 5409", 1, 15),
+      ("Yes Bank - 8111", 1, 15),
+      ("Axis Bank - 2718", 1, 15),
+      ("Axis Bank - 7535", 1, 15),
+      ("IndusInd Bank - 7035", 1, 15),
+      ("IndusInd Bank - 0737", 1, 15),
+      ("IDFC Bank - 5258", 1, 15),
+      ("IDFC Bank - 4878", 1, 15),
+      ("IDFC Bank - 9239", 1, 15),
+      ("Other Credit Card", 1, 15),
+  ]
+  cursor.executemany(
+      "INSERT OR IGNORE INTO credit_cards (card_name, billing_date, due_date)"
+      " VALUES (?, ?, ?)",
+      initial_cards,
+  )
+  conn.commit()
 
 # title & developer branding
 col1, col2 = st.columns([3, 2])
@@ -55,12 +101,37 @@ st.write(
     " आय-व्यय का पूरा हिसाब रखें।"
 )
 
-# menu selection including the new Detailed Summary option
+# Fetch current month summary for dashboard overview
+current_month_str = datetime.now().strftime("%Y-%m")
+cursor.execute(
+    "SELECT type, amount, payment_mode FROM transactions WHERE date LIKE ?",
+    (f"{current_month_str}%",),
+)
+month_rows = cursor.fetchall()
+m_income = sum([r[1] for r in month_rows if r[0] == "Income"])
+m_expense = sum([r[1] for r in month_rows if r[0] == "Expense"])
+m_cc_expense = sum(
+    [r[1] for r in month_rows if r[0] == "Expense" and str(r[2]).startswith("CC:")]
+)
+m_net = m_income - m_expense
+
+# Top Dashboard Summary Cards
+st.markdown("### 📌 इस महीने का ओवरव्यू (Current Month Dashboard)")
+d1, d2, d3, d4 = st.columns(4)
+d1.metric("Income", f"Rs {m_income:,.0f}")
+d2.metric("Expense", f"Rs {m_expense:,.0f}")
+d3.metric("Net Balance", f"Rs {m_net:,.0f}")
+d4.metric("CC Expense", f"Rs {m_cc_expense:,.0f}")
+
+st.markdown("---")
+
+# menu selection including the new Credit Card Manager option
 menu = [
     "Add Transaction",
     "Reports & Dashboard",
     "Detailed Summary (Expense/Income)",
     "Edit Transaction",
+    "Manage Credit Cards (Dates)",
 ]
 choice = st.sidebar.selectbox("Menu", menu)
 
@@ -144,28 +215,10 @@ if choice == "Add Transaction":
   final_payment_mode = base_payment_mode
 
   if base_payment_mode == "Credit Card":
-    cc_list = [
-        "ICICI - 6009",
-        "ICICI - 9003",
-        "Axis Bank - 5302",
-        "HDFC - 9659",
-        "HDFC - 0152",
-        "ICICI - 5000",
-        "ICICI - 7006",
-        "SBI - 0160",
-        "SBI - 2592",
-        "SBI - 9183",
-        "Yes Bank - 5409",
-        "Yes Bank - 8111",
-        "Axis Bank - 2718",
-        "Axis Bank - 7535",
-        "IndusInd Bank - 7035",
-        "IndusInd Bank - 0737",
-        "IDFC Bank - 5258",
-        "IDFC Bank - 4878",
-        "IDFC Bank - 9239",
-        "Other Credit Card",
-    ]
+    cursor.execute("SELECT card_name FROM credit_cards")
+    cc_db_rows = cursor.fetchall()
+    cc_list = [row[0] for row in cc_db_rows]
+
     credit_card_choice = st.selectbox(
         "Select Credit Card", cc_list, key="add_cc_choice"
     )
@@ -360,6 +413,15 @@ elif choice == "Reports & Dashboard":
     m2.metric("Filtered Expense", f"Rs {tot_expense:,.2f}")
     m3.metric("Net Balance", f"Rs {net_val:,.2f}")
 
+    # One Click CSV Download Option
+    csv_data = filtered_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📥 Download Filtered Data as CSV/Excel",
+        data=csv_data,
+        file_name="kharcha_paani_report.csv",
+        mime="text/csv",
+    )
+
     st.markdown("### 📋 Transaction Records")
     display_df = filtered_df[
         [
@@ -442,13 +504,11 @@ elif choice == "Detailed Summary (Expense/Income)":
     )
     df["DateTime"] = pd.to_datetime(df["Date"])
 
-    # 1. Choose between Expense or Income
     view_type = st.radio(
         "Select What You Want to View:", ["Expense (खर्च)", "Income (आय)"]
     )
     selected_type = "Expense" if "Expense" in view_type else "Income"
 
-    # 2. Choose Time Period Option
     period_options = [
         "Daily",
         "Weekly",
@@ -464,7 +524,6 @@ elif choice == "Detailed Summary (Expense/Income)":
     current_year = current_date.year
     filtered_view_df = df[df["Type"] == selected_type].copy()
 
-    # Filter based on period
     if selected_period == "Daily":
       sel_date = st.date_input("Select Date", value=current_date)
       filtered_view_df = filtered_view_df[
@@ -472,7 +531,6 @@ elif choice == "Detailed Summary (Expense/Income)":
       ]
 
     elif selected_period == "Weekly":
-      # current week start and end
       start_of_week = current_date - timedelta(days=current_date.weekday())
       end_of_week = start_of_week + timedelta(days=6)
       col_w1, col_w2 = st.columns(2)
@@ -547,11 +605,19 @@ elif choice == "Detailed Summary (Expense/Income)":
 
     st.markdown("---")
 
-    # Display Total Amount
     total_amt = filtered_view_df["Amount"].sum()
     st.metric(
         label=f"Total {selected_type} for Selected Period",
         value=f"Rs {total_amt:,.2f}",
+    )
+
+    # Download button for detailed view
+    d_csv = filtered_view_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label=f"📥 Download {selected_type} Data as CSV/Excel",
+        data=d_csv,
+        file_name=f"{selected_type.lower()}_summary.csv",
+        mime="text/csv",
     )
 
     st.markdown(f"### 📋 {selected_type} Records")
@@ -666,28 +732,10 @@ elif choice == "Edit Transaction":
 
     final_edit_pay_mode = new_pay_mode
     if new_pay_mode == "Credit Card":
-      cc_list = [
-          "ICICI - 6009",
-          "ICICI - 9003",
-          "Axis Bank - 5302",
-          "HDFC - 9659",
-          "HDFC - 0152",
-          "ICICI - 5000",
-          "ICICI - 7006",
-          "SBI - 0160",
-          "SBI - 2592",
-          "SBI - 9183",
-          "Yes Bank - 5409",
-          "Yes Bank - 8111",
-          "Axis Bank - 2718",
-          "Axis Bank - 7535",
-          "IndusInd Bank - 7035",
-          "IndusInd Bank - 0737",
-          "IDFC Bank - 5258",
-          "IDFC Bank - 4878",
-          "IDFC Bank - 9239",
-          "Other Credit Card",
-      ]
+      cursor.execute("SELECT card_name FROM credit_cards")
+      cc_db_rows = cursor.fetchall()
+      cc_list = [row[0] for row in cc_db_rows]
+
       cc_index = 0
       extracted_card = r_pay_mode.replace("CC: ", "")
       if extracted_card in cc_list:
@@ -728,3 +776,94 @@ elif choice == "Edit Transaction":
         st.rerun()
   else:
     st.warning("दर्ज की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
+
+# ----------------- 5. MANAGE CREDIT CARDS (BILLING & DUE DATES) -----------------
+elif choice == "Manage Credit Cards (Dates)":
+  st.subheader(
+      "💳 क्रेडिट कार्ड बिलिंग और ड्यू डेट मैनेजर (Credit Card Date Setup)"
+  )
+  st.write(
+      "यहाँ आप अपने सभी क्रेडिट कार्ड्स की **Billing Date** (बिल बनने की तारीख)"
+      " और **Due Date** (पेमेंट की आखिरी तारीख) सेट या अपडेट कर सकते हैं।"
+  )
+
+  # Add new card option
+  with st.expander("➕ नया क्रेडिट कार्ड जोड़ें"):
+    with st.form("add_cc_form"):
+      new_card_name = st.text_input("Card Name (जैसे: HDFC - XXXX)")
+      b_date = st.number_input(
+          "Billing Date (1-31)", min_value=1, max_value=31, value=1
+      )
+      d_date = st.number_input(
+          "Due Date (1-31)", min_value=1, max_value=31, value=15
+      )
+      add_cc_btn = st.form_submit_button("Save Card Details")
+
+      if add_cc_btn:
+        if new_card_name.strip():
+          try:
+            cursor.execute(
+                "INSERT INTO credit_cards (card_name, billing_date, due_date)"
+                " VALUES (?, ?, ?)",
+                (new_card_name.strip(), b_date, d_date),
+            )
+            conn.commit()
+            st.success(f"카드 '{new_card_name}' सफलतापूर्वक जुड़ गया!")
+            st.rerun()
+          except:
+            st.error("यह कार्ड पहले से मौजूद है!")
+        else:
+          st.error("कृपया कार्ड का नाम दर्ज करें!")
+
+  # View and Edit existing cards
+  cursor.execute(
+      "SELECT id, card_name, billing_date, due_date FROM credit_cards"
+  )
+  cc_records = cursor.fetchall()
+
+  if cc_records:
+    st.markdown("### 📋 आपके सभी क्रेडिट कार्ड्स की सूचियाँ और तिथियाँ")
+    cc_df = pd.DataFrame(
+        cc_records, columns=["ID", "Card Name", "Billing Date", "Due Date"]
+    )
+    st.dataframe(cc_df, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### ✏️ किसी कार्ड की तारीख अपडेट करें")
+    selected_card_to_edit = st.selectbox(
+        "Choose Card to Update", cc_df["Card Name"].tolist()
+    )
+
+    # get current values
+    cursor.execute(
+        "SELECT billing_date, due_date FROM credit_cards WHERE card_name = ?",
+        (selected_card_to_edit,),
+    )
+    curr_b, curr_d = cursor.fetchone()
+
+    with st.form("update_cc_form"):
+      up_b = st.number_input(
+          "New Billing Date",
+          min_value=1,
+          max_value=31,
+          value=int(curr_b),
+      )
+      up_d = st.number_input(
+          "New Due Date", min_value=1, max_value=31, value=int(curr_d)
+      )
+      up_btn = st.form_submit_button("Update Card Dates")
+
+      if up_btn:
+        cursor.execute(
+            "UPDATE credit_cards SET billing_date = ?, due_date = ? WHERE"
+            " card_name = ?",
+            (up_b, up_d, selected_card_to_edit),
+        )
+        conn.commit()
+        st.success(
+            f"🎉 कार्ड '{selected_card_to_edit}' की तारीखें सफलतापूर्वक अपडेट"
+            " हो गईं!"
+        )
+        st.rerun()
+  else:
+    st.info("कोई क्रेडिट कार्ड दर्ज नहीं है।")
