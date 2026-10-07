@@ -3,13 +3,13 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 
-# पेज की सेटिंग
+# page setting
 st.set_page_config(
     page_title="Kharcha Paani - Personal Finance", page_icon="💰", layout="centered"
 )
 
 
-# डेटाबेस कनेक्शन और इनिशियलाइज़ेशन
+# database connection and initialization
 def init_db():
   conn = sqlite3.connect("comprehensive_finance.db", check_same_thread=False)
   cursor = conn.cursor()
@@ -32,7 +32,7 @@ def init_db():
 conn = init_db()
 cursor = conn.cursor()
 
-# होम पेज पर टाइटल और डेवलपर का नाम एक ही लाइन या बगल में दिखाने के लिए
+# title & developer branding
 col1, col2 = st.columns([3, 2])
 with col1:
   st.title("💰 Kharcha Paani")
@@ -44,10 +44,11 @@ with col2:
   )
 
 st.write(
-    "अपने दैनिक, मासिक और वार्षिक आय-व्यय (Income & Expense) का पूरा हिसाब रखें।"
+    "अपने दैनिक, मासिक, वार्षिक और कैटेगरी के हिसाब से आय-व्यय का पूरा हिसाब"
+    " रखें।"
 )
 
-# मेनू चयन
+# menu selection
 menu = ["Add Transaction", "Reports & Dashboard"]
 choice = st.sidebar.selectbox("Menu", menu)
 
@@ -146,40 +147,13 @@ if choice == "Add Transaction":
 
 # ----------------- 2. REPORT & DASHBOARD SECTION -----------------
 elif choice == "Reports & Dashboard":
-  st.subheader("📊 रिपोर्ट और विश्लेषण (Reports & View)")
+  st.subheader("📊 रिपोर्ट और विस्तृत विश्लेषण (Reports & Dashboard)")
 
-  period = st.selectbox(
-      "Select Period", ["All Time", "Monthly", "Yearly", "Custom Date"]
+  # fetch all data to compute dynamic filters
+  cursor.execute(
+      "SELECT id, date, type, location, sub_category, amount, remarks FROM"
+      " transactions ORDER BY id DESC"
   )
-
-  query = "SELECT id, date, type, location, sub_category, amount, remarks FROM transactions WHERE 1=1"
-  params = []
-
-  if period == "Monthly":
-    month_val = st.text_input(
-        "Enter Month (YYYY-MM)",
-        value=datetime.now().strftime("%Y-%m"),
-        placeholder="e.g. 2026-10",
-    )
-    if month_val:
-      query += " AND date LIKE ?"
-      params.append(f"{month_val}%")
-  elif period == "Yearly":
-    year_val = st.text_input(
-        "Enter Year (YYYY)", value=datetime.now().strftime("%Y")
-    )
-    if year_val:
-      query += " AND date LIKE ?"
-      params.append(f"{year_val}%")
-  elif period == "Custom Date":
-    start_date = st.date_input("Start Date")
-    end_date = st.date_input("End Date")
-    query += " AND date BETWEEN ? AND ?"
-    params.extend([str(start_date), str(end_date)])
-
-  query += " ORDER BY id DESC"
-
-  cursor.execute(query, params)
   rows = cursor.fetchall()
 
   if rows:
@@ -187,18 +161,163 @@ elif choice == "Reports & Dashboard":
         rows,
         columns=["ID", "Date", "Type", "Location", "Sub-Category", "Amount", "Remarks"],
     )
+    # convert date column to datetime
+    df["DateTime"] = pd.to_datetime(df["Date"])
 
-    total_income = df[df["Type"] == "Income"]["Amount"].sum()
-    total_expense = df[df["Type"] == "Expense"]["Amount"].sum()
-    net_balance = total_income - total_expense
+    st.markdown("### 🔍 Filter Options")
+    col_f1, col_f2 = st.columns(2)
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Income", f"Rs {total_income:,.2f}")
-    col2.metric("Total Expense", f"Rs {total_expense:,.2f}")
-    col3.metric("Net Balance", f"Rs {net_balance:,.2f}")
+    with col_f1:
+      filter_type = st.selectbox("Filter by Type", ["All", "Expense", "Income"])
+      period = st.selectbox(
+          "Select Time Period",
+          [
+              "All Time",
+              "Monthly",
+              "Quarterly",
+              "Half Yearly",
+              "Yearly",
+              "Custom Date Range",
+          ],
+      )
+
+    with col_f2:
+      filter_loc = st.selectbox(
+          "Filter by Location", ["All"] + list(df["Location"].unique())
+      )
+      filter_cat = st.selectbox(
+          "Filter by Sub-Category / Category", ["All"] + list(df["Sub-Category"].unique())
+      )
+
+    # Apply filters based on selections
+    filtered_df = df.copy()
+
+    if filter_type != "All":
+      filtered_df = filtered_df[filtered_df["Type"] == filter_type]
+
+    if filter_loc != "All":
+      filtered_df = filtered_df[filtered_df["Location"] == filter_loc]
+
+    if filter_cat != "All":
+      filtered_df = filtered_df[filtered_df["Sub-Category"] == filter_cat]
+
+    # Time Period Filtering Logic
+    current_year = datetime.now().year
+    current_month = datetime.now().month
+
+    if period == "Monthly":
+      selected_month_str = st.text_input(
+          "Enter Month (YYYY-MM)", value=datetime.now().strftime("%Y-%m")
+      )
+      if selected_month_str:
+        filtered_df = filtered_df[
+            filtered_df["Date"].str.startswith(selected_month_str)
+        ]
+    elif period == "Yearly":
+      selected_year_str = st.text_input("Enter Year (YYYY)", value=str(current_year))
+      if selected_year_str:
+        filtered_df = filtered_df[
+            filtered_df["Date"].str.startswith(selected_year_str)
+        ]
+    elif period == "Quarterly":
+      q_choice = st.selectbox(
+          "Select Quarter",
+          ["Q1 (Jan-Mar)", "Q2 (Apr-Jun)", "Q3 (Jul-Sep)", "Q4 (Oct-Dec)"],
+      )
+      year_for_q = st.text_input(
+          "Enter Year for Quarter", value=str(current_year), key="q_year"
+      )
+      if year_for_q:
+        if "Q1" in q_choice:
+          months = [
+              f"{year_for_q}-01",
+              f"{year_for_q}-02",
+              f"{year_for_q}-03",
+          ]
+        elif "Q2" in q_choice:
+          months = [
+              f"{year_for_q}-04",
+              f"{year_for_q}-05",
+              f"{year_for_q}-06",
+          ]
+        elif "Q3" in q_choice:
+          months = [
+              f"{year_for_q}-07",
+              f"{year_for_q}-08",
+              f"{year_for_q}-09",
+          ]
+        else:
+          months = [
+              f"{year_for_q}-10",
+              f"{year_for_q}-11",
+              f"{year_for_q}-12",
+          ]
+        filtered_df = filtered_df[
+            filtered_df["Date"].str[:7].isin(months)
+        ]
+    elif period == "Half Yearly":
+      h_choice = st.selectbox(
+          "Select Half Year",
+          ["H1 (Jan - Jun)", "H2 (Jul - Dec)"],
+      )
+      year_for_h = st.text_input(
+          "Enter Year for Half Year", value=str(current_year), key="h_year"
+      )
+      if year_for_h:
+        if "H1" in h_choice:
+          months = [f"{year_for_h}-{m:02d}" for m in range(1, 7)]
+        else:
+          months = [f"{year_for_h}-{m:02d}" for m in range(7, 13)]
+        filtered_df = filtered_df[
+            filtered_df["Date"].str[:7].isin(months)
+        ]
+    elif period == "Custom Date Range":
+      col_d1, col_d2 = st.columns(2)
+      with col_d1:
+        start_date = st.date_input("Start Date")
+      with col_d2:
+        end_date = st.date_input("End Date")
+      filtered_df = filtered_df[
+          (filtered_df["DateTime"].dt.date >= start_date)
+          & (filtered_df["DateTime"].dt.date <= end_date)
+      ]
 
     st.markdown("---")
-    st.dataframe(df, use_container_width=True)
+
+    # Metrics display for filtered results
+    tot_income = filtered_df[filtered_df["Type"] == "Income"]["Amount"].sum()
+    tot_expense = filtered_df[filtered_df["Type"] == "Expense"]["Amount"].sum()
+    net_val = tot_income - tot_expense
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Filtered Income", f"Rs {tot_income:,.2f}")
+    m2.metric("Filtered Expense", f"Rs {tot_expense:,.2f}")
+    m3.metric("Net Balance", f"Rs {net_val:,.2f}")
+
+    st.markdown("### 📋 Transaction Records")
+    display_df = filtered_df[
+        [
+            "ID",
+            "Date",
+            "Type",
+            "Location",
+            "Sub-Category",
+            "Amount",
+            "Remarks",
+        ]
+    ]
+    st.dataframe(display_df, use_container_width=True)
+
+    # Category Wise Summary Table for filtered data
+    if not filtered_df.empty:
+      st.markdown("### 📊 Category / Sub-Category Wise Total Breakdown")
+      cat_summary = (
+          filtered_df.groupby(["Type", "Location", "Sub-Category"])["Amount"]
+          .sum()
+          .reset_index()
+      )
+      cat_summary.columns = ["Type", "Location", "Category/Sub-Category", "Total Amount (Rs)"]
+      st.dataframe(cat_summary, use_container_width=True)
 
     st.markdown("### 🗑️ Delete Transaction")
     del_id = st.number_input(
@@ -211,4 +330,4 @@ elif choice == "Reports & Dashboard":
         st.success(f"ID {del_id} सफलतापूर्वक हटा दिया गया!")
         st.rerun()
   else:
-    st.info("इस अवधि के लिए कोई डेटा उपलब्ध नहीं है।")
+    st.info("डेटाबेस में अभी कोई लेनदेन दर्ज नहीं है।")
