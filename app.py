@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3
 import pandas as pd
 import streamlit as st
@@ -55,8 +55,13 @@ st.write(
     " आय-व्यय का पूरा हिसाब रखें।"
 )
 
-# menu selection
-menu = ["Add Transaction", "Reports & Dashboard", "Edit Transaction"]
+# menu selection including the new Detailed Summary option
+menu = [
+    "Add Transaction",
+    "Reports & Dashboard",
+    "Detailed Summary (Expense/Income)",
+    "Edit Transaction",
+]
 choice = st.sidebar.selectbox("Menu", menu)
 
 # ----------------- 1. TRANSACTION ADD SECTION -----------------
@@ -131,7 +136,6 @@ if choice == "Add Transaction":
       "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0, key="add_amount"
   )
 
-  # Payment mode order: Cash first, Credit Card second, then others
   pay_modes = ["Cash", "Credit Card", "UPI", "Debit Card", "Net Banking", "Other"]
   base_payment_mode = st.selectbox(
       "Payment Mode", pay_modes, key="add_paymode"
@@ -390,9 +394,7 @@ elif choice == "Reports & Dashboard":
         st.dataframe(cat_summary, use_container_width=True)
 
       with col_sum2:
-        st.markdown(
-            "### 💳 Payment Mode Wise Breakdown (Income & Expense Alag-Alag)"
-        )
+        st.markdown("### 💳 Payment Mode Wise Breakdown")
         pay_summary = (
             filtered_df.groupby(["Payment_Mode", "Type"])["Amount"]
             .sum()
@@ -414,7 +416,189 @@ elif choice == "Reports & Dashboard":
   else:
     st.info("डेटाबेस में अभी कोई लेनदेन दर्ज नहीं है।")
 
-# ----------------- 3. TRANSACTION EDIT SECTION -----------------
+# ----------------- 3. DETAILED SUMMARY (EXPENSE / INCOME) SECTION -----------------
+elif choice == "Detailed Summary (Expense/Income)":
+  st.subheader("🔍 विस्तृत आय या खर्च विवरण (Detailed Expense/Income View)")
+
+  cursor.execute(
+      "SELECT id, date, type, location, sub_category, amount, payment_mode,"
+      " remarks FROM transactions ORDER BY id DESC"
+  )
+  rows = cursor.fetchall()
+
+  if rows:
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "ID",
+            "Date",
+            "Type",
+            "Location",
+            "Sub-Category",
+            "Amount",
+            "Payment_Mode",
+            "Remarks",
+        ],
+    )
+    df["DateTime"] = pd.to_datetime(df["Date"])
+
+    # 1. Choose between Expense or Income
+    view_type = st.radio(
+        "Select What You Want to View:", ["Expense (खर्च)", "Income (आय)"]
+    )
+    selected_type = "Expense" if "Expense" in view_type else "Income"
+
+    # 2. Choose Time Period Option
+    period_options = [
+        "Daily",
+        "Weekly",
+        "Monthly",
+        "Quarterly",
+        "Half Yearly",
+        "Yearly",
+        "Custom Date Range",
+    ]
+    selected_period = st.selectbox("Select Period Type", period_options)
+
+    current_date = datetime.now().date()
+    current_year = current_date.year
+    filtered_view_df = df[df["Type"] == selected_type].copy()
+
+    # Filter based on period
+    if selected_period == "Daily":
+      sel_date = st.date_input("Select Date", value=current_date)
+      filtered_view_df = filtered_view_df[
+          filtered_view_df["DateTime"].dt.date == sel_date
+      ]
+
+    elif selected_period == "Weekly":
+      # current week start and end
+      start_of_week = current_date - timedelta(days=current_date.weekday())
+      end_of_week = start_of_week + timedelta(days=6)
+      col_w1, col_w2 = st.columns(2)
+      with col_w1:
+        w_start = st.date_input("Week Start Date", value=start_of_week)
+      with col_w2:
+        w_end = st.date_input("Week End Date", value=end_of_week)
+      filtered_view_df = filtered_view_df[
+          (filtered_view_df["DateTime"].dt.date >= w_start)
+          & (filtered_view_df["DateTime"].dt.date <= w_end)
+      ]
+
+    elif selected_period == "Monthly":
+      m_str = st.text_input(
+          "Enter Month (YYYY-MM)", value=datetime.now().strftime("%Y-%m")
+      )
+      if m_str:
+        filtered_view_df = filtered_view_df[
+            filtered_view_df["Date"].str.startswith(m_str)
+        ]
+
+    elif selected_period == "Quarterly":
+      q_choice = st.selectbox(
+          "Select Quarter",
+          ["Q1 (Jan-Mar)", "Q2 (Apr-Jun)", "Q3 (Jul-Sep)", "Q4 (Oct-Dec)"],
+      )
+      yr_q = st.text_input("Enter Year", value=str(current_year), key="det_q_yr")
+      if yr_q:
+        if "Q1" in q_choice:
+          months = [f"{yr_q}-01", f"{yr_q}-02", f"{yr_q}-03"]
+        elif "Q2" in q_choice:
+          months = [f"{yr_q}-04", f"{yr_q}-05", f"{yr_q}-06"]
+        elif "Q3" in q_choice:
+          months = [f"{yr_q}-07", f"{yr_q}-08", f"{yr_q}-09"]
+        else:
+          months = [f"{yr_q}-10", f"{yr_q}-11", f"{yr_q}-12"]
+        filtered_view_df = filtered_view_df[
+            filtered_view_df["Date"].str[:7].isin(months)
+        ]
+
+    elif selected_period == "Half Yearly":
+      h_choice = st.selectbox(
+          "Select Half Year", ["H1 (Jan - Jun)", "H2 (Jul - Dec)"]
+      )
+      yr_h = st.text_input("Enter Year", value=str(current_year), key="det_h_yr")
+      if yr_h:
+        if "H1" in h_choice:
+          months = [f"{yr_h}-{m:02d}" for m in range(1, 7)]
+        else:
+          months = [f"{yr_h}-{m:02d}" for m in range(7, 13)]
+        filtered_view_df = filtered_view_df[
+            filtered_view_df["Date"].str[:7].isin(months)
+        ]
+
+    elif selected_period == "Yearly":
+      yr_str = st.text_input("Enter Year (YYYY)", value=str(current_year))
+      if yr_str:
+        filtered_view_df = filtered_view_df[
+            filtered_view_df["Date"].str.startswith(yr_str)
+        ]
+
+    elif selected_period == "Custom Date Range":
+      col_cd1, col_cd2 = st.columns(2)
+      with col_cd1:
+        c_start = st.date_input("Start Date", key="det_start")
+      with col_cd2:
+        c_end = st.date_input("End Date", key="det_end")
+      filtered_view_df = filtered_view_df[
+          (filtered_view_df["DateTime"].dt.date >= c_start)
+          & (filtered_view_df["DateTime"].dt.date <= c_end)
+      ]
+
+    st.markdown("---")
+
+    # Display Total Amount
+    total_amt = filtered_view_df["Amount"].sum()
+    st.metric(
+        label=f"Total {selected_type} for Selected Period",
+        value=f"Rs {total_amt:,.2f}",
+    )
+
+    st.markdown(f"### 📋 {selected_type} Records")
+    if not filtered_view_df.empty:
+      st.dataframe(
+          filtered_view_df[
+              [
+                  "ID",
+                  "Date",
+                  "Location",
+                  "Sub-Category",
+                  "Amount",
+                  "Payment_Mode",
+                  "Remarks",
+              ]
+          ],
+          use_container_width=True,
+      )
+
+      st.markdown("### 📊 Category & Payment Mode Wise Breakdown")
+      col_b1, col_b2 = st.columns(2)
+
+      with col_b1:
+        st.markdown("**Category Breakdown**")
+        cat_brk = (
+            filtered_view_df.groupby(["Location", "Sub-Category"])["Amount"]
+            .sum()
+            .reset_index()
+        )
+        cat_brk.columns = ["Location", "Category", "Total (Rs)"]
+        st.dataframe(cat_brk, use_container_width=True)
+
+      with col_b2:
+        st.markdown("**Payment Mode Breakdown**")
+        pay_brk = (
+            filtered_view_df.groupby(["Payment_Mode"])["Amount"]
+            .sum()
+            .reset_index()
+        )
+        pay_brk.columns = ["Payment Mode", "Total (Rs)"]
+        st.dataframe(pay_brk, use_container_width=True)
+    else:
+      st.info(f"इस अवधि में कोई {selected_type} डेटा उपलब्ध नहीं है।")
+  else:
+    st.info("डेटाबेस में अभी कोई लेनदेन दर्ज नहीं है।")
+
+# ----------------- 4. TRANSACTION EDIT SECTION -----------------
 elif choice == "Edit Transaction":
   st.subheader("✏️ लेनदेन संपादित करें (Edit Existing Entry)")
 
