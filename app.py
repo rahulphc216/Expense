@@ -9,7 +9,7 @@ st.set_page_config(
 )
 
 
-# database connection and initialization
+# database connection and initialization (with payment_mode column check)
 def init_db():
   conn = sqlite3.connect("comprehensive_finance.db", check_same_thread=False)
   cursor = conn.cursor()
@@ -22,9 +22,17 @@ def init_db():
             category TEXT,
             sub_category TEXT,
             amount REAL,
+            payment_mode TEXT,
             remarks TEXT
         )
     """)
+  # migration check if payment_mode column is missing in older db
+  cursor.execute("PRAGMA table_info(transactions)")
+  columns = [col[1] for col in cursor.fetchall()]
+  if "payment_mode" not in columns:
+    cursor.execute(
+        "ALTER TABLE transactions ADD COLUMN payment_mode TEXT DEFAULT 'UPI'"
+    )
   conn.commit()
   return conn
 
@@ -44,8 +52,8 @@ with col2:
   )
 
 st.write(
-    "अपने दैनिक, मासिक, वार्षिक और कैटेगरी के हिसाब से आय-व्यय का पूरा हिसाब"
-    " रखें।"
+    "अपने दैनिक, मासिक, वार्षिक और भुगतान के माध्यम (Payment Mode) के हिसाब से"
+    " आय-व्यय का पूरा हिसाब रखें।"
 )
 
 # menu selection
@@ -68,9 +76,11 @@ if choice == "Add Transaction":
 
     if location == "Patna":
       sub_cat_options = [
+          "Room Misc.",
           "Office",
           "Room Rent",
-          "Room Misc.",
+          "Loan/LIC",
+          "Self",
           "Room Others",
           "Room Rishi",
           "Lagguage",
@@ -86,6 +96,7 @@ if choice == "Add Transaction":
           "Munni G",
           "Mother",
           "Father",
+          "Self",
           "Festival",
           "Misc.",
           "Others",
@@ -116,6 +127,13 @@ if choice == "Add Transaction":
     amount = st.number_input(
         "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
     )
+
+    # Payment Mode selection
+    payment_mode = st.selectbox(
+        "Payment Mode",
+        ["UPI", "Credit Card", "Debit Card", "Cash", "Net Banking", "Other"],
+    )
+
     remarks = st.text_area("Remarks (विवरण या नोट)")
 
     submit_button = st.form_submit_button(label="Save Transaction")
@@ -131,7 +149,8 @@ if choice == "Add Transaction":
         date_str = datetime.now().strftime("%Y-%m-%d")
         cursor.execute(
             "INSERT INTO transactions (date, type, location, category,"
-            " sub_category, amount, remarks) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?,"
+            " ?, ?, ?, ?, ?)",
             (
                 date_str,
                 t_type,
@@ -139,6 +158,7 @@ if choice == "Add Transaction":
                 final_sub_cat,
                 final_sub_cat,
                 amount,
+                payment_mode,
                 remarks,
             ),
         )
@@ -149,23 +169,31 @@ if choice == "Add Transaction":
 elif choice == "Reports & Dashboard":
   st.subheader("📊 रिपोर्ट और विस्तृत विश्लेषण (Reports & Dashboard)")
 
-  # fetch all data to compute dynamic filters
+  # fetch all data including payment_mode
   cursor.execute(
-      "SELECT id, date, type, location, sub_category, amount, remarks FROM"
-      " transactions ORDER BY id DESC"
+      "SELECT id, date, type, location, sub_category, amount, payment_mode,"
+      " remarks FROM transactions ORDER BY id DESC"
   )
   rows = cursor.fetchall()
 
   if rows:
     df = pd.DataFrame(
         rows,
-        columns=["ID", "Date", "Type", "Location", "Sub-Category", "Amount", "Remarks"],
+        columns=[
+            "ID",
+            "Date",
+            "Type",
+            "Location",
+            "Sub-Category",
+            "Amount",
+            "Payment_Mode",
+            "Remarks",
+        ],
     )
-    # convert date column to datetime
     df["DateTime"] = pd.to_datetime(df["Date"])
 
     st.markdown("### 🔍 Filter Options")
-    col_f1, col_f2 = st.columns(2)
+    col_f1, col_f2, col_f3 = st.columns(3)
 
     with col_f1:
       filter_type = st.selectbox("Filter by Type", ["All", "Expense", "Income"])
@@ -186,10 +214,15 @@ elif choice == "Reports & Dashboard":
           "Filter by Location", ["All"] + list(df["Location"].unique())
       )
       filter_cat = st.selectbox(
-          "Filter by Sub-Category / Category", ["All"] + list(df["Sub-Category"].unique())
+          "Filter by Sub-Category", ["All"] + list(df["Sub-Category"].unique())
       )
 
-    # Apply filters based on selections
+    with col_f3:
+      filter_pay = st.selectbox(
+          "Filter by Payment Mode", ["All"] + list(df["Payment_Mode"].unique())
+      )
+
+    # Apply filters
     filtered_df = df.copy()
 
     if filter_type != "All":
@@ -201,9 +234,11 @@ elif choice == "Reports & Dashboard":
     if filter_cat != "All":
       filtered_df = filtered_df[filtered_df["Sub-Category"] == filter_cat]
 
+    if filter_pay != "All":
+      filtered_df = filtered_df[filtered_df["Payment_Mode"] == filter_pay]
+
     # Time Period Filtering Logic
     current_year = datetime.now().year
-    current_month = datetime.now().month
 
     if period == "Monthly":
       selected_month_str = st.text_input(
@@ -303,21 +338,38 @@ elif choice == "Reports & Dashboard":
             "Location",
             "Sub-Category",
             "Amount",
+            "Payment_Mode",
             "Remarks",
         ]
     ]
     st.dataframe(display_df, use_container_width=True)
 
-    # Category Wise Summary Table for filtered data
+    # Breakdown Summaries
     if not filtered_df.empty:
-      st.markdown("### 📊 Category / Sub-Category Wise Total Breakdown")
-      cat_summary = (
-          filtered_df.groupby(["Type", "Location", "Sub-Category"])["Amount"]
-          .sum()
-          .reset_index()
-      )
-      cat_summary.columns = ["Type", "Location", "Category/Sub-Category", "Total Amount (Rs)"]
-      st.dataframe(cat_summary, use_container_width=True)
+      col_sum1, col_sum2 = st.columns(2)
+
+      with col_sum1:
+        st.markdown("### 📊 Category Wise Breakdown")
+        cat_summary = (
+            filtered_df.groupby(["Type", "Location", "Sub-Category"])["Amount"]
+            .sum()
+            .reset_index()
+        )
+        cat_summary.columns = [
+            "Type",
+            "Location",
+            "Category/Sub-Category",
+            "Total (Rs)",
+        ]
+        st.dataframe(cat_summary, use_container_width=True)
+
+      with col_sum2:
+        st.markdown("### 💳 Payment Mode Wise Breakdown")
+        pay_summary = (
+            filtered_df.groupby(["Payment_Mode"])["Amount"].sum().reset_index()
+        )
+        pay_summary.columns = ["Payment Mode", "Total (Rs)"]
+        st.dataframe(pay_summary, use_container_width=True)
 
     st.markdown("### 🗑️ Delete Transaction")
     del_id = st.number_input(
