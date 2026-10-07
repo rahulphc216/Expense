@@ -129,7 +129,6 @@ def get_sorted_cc_list(cursor):
   raw_rows = cursor.fetchall()
   raw_list = [r[0] for r in raw_rows]
 
-  # Desired specific sequence at the top
   preferred = ["ICICI - 6009", "ICICI - 9003", "Axis Bank - 5302"]
   sorted_list = [c for c in preferred if c in raw_list]
   for c in raw_list:
@@ -154,7 +153,7 @@ st.write(
     " आय-व्यय का पूरा हिसाब रखें।"
 )
 
-# ----------------- SMART 7-DAY DUE DATE RED ALERT WITH AUTO-DETECT -----------------
+# ----------------- SMART 7-DAY DUE DATE RED ALERT (ONLY IF BALANCE/TRANSACTION > 0) -----------------
 today = datetime.now()
 current_day = today.day
 current_month = today.month
@@ -176,6 +175,17 @@ for t_mode, t_remarks in trans_rows:
     )
 conn.commit()
 
+cursor.execute(
+    "SELECT payment_mode, amount FROM transactions WHERE date LIKE ? AND"
+    " payment_mode LIKE 'CC:%'",
+    (f"{current_month_str}%",),
+)
+cc_trans = cursor.fetchall()
+card_spent_map = {}
+for p_mode, amt in cc_trans:
+  c_name = p_mode.replace("CC: ", "").strip()
+  card_spent_map[c_name] = card_spent_map.get(c_name, 0.0) + amt
+
 cursor.execute("SELECT card_name, due_date, last_paid_month FROM credit_cards")
 all_cards_for_alert = cursor.fetchall()
 
@@ -184,18 +194,22 @@ for c_name, d_date, l_paid in all_cards_for_alert:
   if l_paid == current_month_str:
     continue
 
+  spent_amount = card_spent_map.get(c_name, 0.0)
+  if spent_amount <= 0:
+    continue
+
   try:
     due_dt = datetime(current_year, current_month, int(d_date))
     days_left = (due_dt - today).days
     if 0 <= days_left <= 7:
       alerts.append(
-          f"⚠️ **Alert:** '{c_name}' की Due Date **{d_date} तारीख** को है! (सिर्फ"
-          f" {days_left} दिन बाकी)"
+          f"⚠️ **Alert:** '{c_name}' (Spent: Rs {spent_amount:,.0f}) की Due Date"
+          f" **{d_date} तारीख** को है! (सिर्फ {days_left} दिन बाकी)"
       )
     elif -3 <= days_left < 0:
       alerts.append(
-          f"🚨 **Urgent:** '{c_name}' की Due Date निकल चुकी है! कृपया तुरंत"
-          " भुगतान करें।"
+          f"🚨 **Urgent:** '{c_name}' (Spent: Rs {spent_amount:,.0f}) की Due"
+          " Date निकल चुकी है! कृपया तुरंत भुगतान करें।"
       )
   except:
     pass
@@ -539,7 +553,8 @@ elif choice == "Reports & Dashboard":
     m2.metric("Filtered Expense", f"Rs {tot_expense:,.2f}")
     m3.metric("Net Balance", f"Rs {net_val:,.2f}")
 
-    export_df = filtered_df[
+    # DataFrame for display (original column names)
+    disp_df = filtered_df[
         [
             "ID",
             "Date",
@@ -550,7 +565,10 @@ elif choice == "Reports & Dashboard":
             "Payment_Mode",
             "Remarks",
         ]
-    ].copy()
+    ]
+
+    # DataFrame for CSV export (renamed columns)
+    export_df = disp_df.copy()
     export_df.rename(
         columns={
             "Type": "Transaction Type (Credit/Debit)",
@@ -569,7 +587,7 @@ elif choice == "Reports & Dashboard":
     )
 
     st.markdown("### 📋 Transaction Records")
-    st.dataframe(filtered_df[export_df.columns], use_container_width=True)
+    st.dataframe(disp_df, use_container_width=True)
 
     if not filtered_df.empty:
       col_sum1, col_sum2 = st.columns(2)
@@ -745,7 +763,7 @@ elif choice == "Detailed Summary (Expense/Income)":
         value=f"Rs {total_amt:,.2f}",
     )
 
-    d_export = filtered_view_df[
+    disp_det_df = filtered_view_df[
         [
             "ID",
             "Date",
@@ -756,7 +774,9 @@ elif choice == "Detailed Summary (Expense/Income)":
             "Payment_Mode",
             "Remarks",
         ]
-    ].copy()
+    ]
+
+    d_export = disp_det_df.copy()
     d_export.rename(
         columns={
             "Type": "Transaction Type (Credit/Debit)",
@@ -776,7 +796,7 @@ elif choice == "Detailed Summary (Expense/Income)":
 
     st.markdown(f"### 📋 {selected_type} Records")
     if not filtered_view_df.empty:
-      st.dataframe(filtered_view_df[d_export.columns], use_container_width=True)
+      st.dataframe(disp_det_df, use_container_width=True)
 
       st.markdown("### 📊 Category & Payment Mode Wise Breakdown")
       col_b1, col_b2 = st.columns(2)
