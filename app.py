@@ -129,7 +129,6 @@ def get_sorted_cc_list(cursor):
   raw_rows = cursor.fetchall()
   raw_list = [r[0] for r in raw_rows]
 
-  # Desired specific sequence at the top
   preferred = ["ICICI - 6009", "ICICI - 9003", "Axis Bank - 5302"]
   sorted_list = [c for c in preferred if c in raw_list]
   for c in raw_list:
@@ -154,7 +153,7 @@ st.write(
     " आय-व्यय का पूरा हिसाब रखें।"
 )
 
-# ----------------- SMART 7-DAY DUE DATE RED ALERT WITH AUTO-DETECT -----------------
+# ----------------- SMART 7-DAY DUE DATE RED ALERT (ONLY IF BALANCE/TRANSACTION > 0) -----------------
 today = datetime.now()
 current_day = today.day
 current_month = today.month
@@ -176,6 +175,25 @@ for t_mode, t_remarks in trans_rows:
     )
 conn.commit()
 
+# Calculate exact card-wise expense for current month to check if due amount > 0
+cursor.execute(
+    "SELECT payment_amount, card_name FROM ("
+    "  SELECT payment_mode, SUM(amount) as payment_amount FROM transactions WHERE date LIKE ? AND payment_mode LIKE 'CC:%' GROUP BY payment_mode"
+    ")",
+    (f"{current_month_str}%",),
+)
+# simpler check: fetch all CC transactions for current month and sum per card
+cursor.execute(
+    "SELECT payment_mode, amount FROM transactions WHERE date LIKE ? AND"
+    " payment_mode LIKE 'CC:%'",
+    (f"{current_month_str}%",),
+)
+cc_trans = cursor.fetchall()
+card_spent_map = {}
+for p_mode, amt in cc_trans:
+  c_name = p_mode.replace("CC: ", "").strip()
+  card_spent_map[c_name] = card_spent_map.get(c_name, 0.0) + amt
+
 cursor.execute("SELECT card_name, due_date, last_paid_month FROM credit_cards")
 all_cards_for_alert = cursor.fetchall()
 
@@ -184,18 +202,23 @@ for c_name, d_date, l_paid in all_cards_for_alert:
   if l_paid == current_month_str:
     continue
 
+  # Check if this card has any transaction/spending this month (Zero spend check)
+  spent_amount = card_spent_map.get(c_name, 0.0)
+  if spent_amount <= 0:
+    continue  # Zero transaction/due, skip alert completely!
+
   try:
     due_dt = datetime(current_year, current_month, int(d_date))
     days_left = (due_dt - today).days
     if 0 <= days_left <= 7:
       alerts.append(
-          f"⚠️ **Alert:** '{c_name}' की Due Date **{d_date} तारीख** को है! (सिर्फ"
-          f" {days_left} दिन बाकी)"
+          f"⚠️ **Alert:** '{c_name}' (Spent: Rs {spent_amount:,.0f}) की Due Date"
+          f" **{d_date} तारीख** को है! (सिर्फ {days_left} दिन बाकी)"
       )
     elif -3 <= days_left < 0:
       alerts.append(
-          f"🚨 **Urgent:** '{c_name}' की Due Date निकल चुकी है! कृपया तुरंत"
-          " भुगतान करें।"
+          f"🚨 **Urgent:** '{c_name}' (Spent: Rs {spent_amount:,.0f}) की Due"
+          " Date निकल चुकी है! कृपया तुरंत भुगतान करें।"
       )
   except:
     pass
