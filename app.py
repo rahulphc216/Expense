@@ -41,7 +41,7 @@ def init_db():
         )
     """)
 
-  # Loans & LIC (Recurring Payments) table (Added last_paid_period column)
+  # Loans & LIC (Recurring Payments) table
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS recurring_payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,6 +53,15 @@ def init_db():
             due_month INTEGER,
             payment_mode TEXT,
             last_paid_period TEXT DEFAULT ''
+        )
+    """)
+
+  # Custom Sub-Categories table for Locations
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS custom_subcategories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location TEXT,
+            sub_category_name TEXT UNIQUE
         )
     """)
 
@@ -156,6 +165,56 @@ def get_sorted_cc_list(cursor):
   return sorted_list
 
 
+# Helper function to fetch sub-categories (default + custom)
+def get_subcategories_for_location(cursor, location):
+  defaults = {
+      "Patna": [
+          "Room Misc.",
+          "Room Rishi",
+          "Office",
+          "Room Rent",
+          "Loan/LIC",
+          "Self",
+          "Room Others",
+          "Lagguage",
+          "Others",
+      ],
+      "Barhiya": [
+          "Vegetable",
+          "Fruit",
+          "Medicine",
+          "Chhotu",
+          "Breakfast Market",
+          "Pagla Shop",
+          "Ice Cream",
+          "Mukhiya G",
+          "Munni G",
+          "Mother",
+          "Father",
+          "Self",
+          "Festival",
+          "Misc.",
+          "Others",
+      ],
+      "Lakhisarai": ["Breakfast", "Toys", "Books", "Smita G", "Others"],
+      "Others": ["Manual Entry (Others)"],
+  }
+
+  base_list = defaults.get(location, ["Others"])
+
+  # Fetch custom added subcategories from DB
+  cursor.execute(
+      "SELECT sub_category_name FROM custom_subcategories WHERE location = ?",
+      (location,),
+  )
+  custom_rows = cursor.fetchall()
+  for r in custom_rows:
+    if r[0] not in base_list:
+      base_list.insert(-1, r[0])  # insert before 'Others' if possible
+
+  return base_list
+
+
 # title & developer branding
 col1, col2 = st.columns([3, 2])
 with col1:
@@ -180,7 +239,6 @@ current_year = today.year
 current_month_str = today.strftime("%Y-%m")
 current_year_str = str(current_year)
 
-# 1. Auto-detect Credit Card payments from transactions
 cursor.execute(
     "SELECT payment_mode FROM transactions WHERE date LIKE ?",
     (f"{current_month_str}%",),
@@ -195,7 +253,6 @@ for (t_mode,) in trans_rows:
         (current_month_str, card_n),
     )
 
-# 2. Auto-detect Loans & LIC payments from transactions (matching remarks or sub_category/item name)
 cursor.execute(
     "SELECT sub_category, remarks, amount FROM transactions WHERE date LIKE ?",
     (f"{current_month_str}%",),
@@ -210,7 +267,6 @@ rec_items = cursor.fetchall()
 for r_id, i_name, freq, d_mon in rec_items:
   paid_matched = False
   for sub_c, rem, amt in all_trans:
-    # Check if item name is mentioned in remarks or sub_category
     if (i_name.lower() in str(sub_c).lower()) or (
         i_name.lower() in str(rem).lower()
     ):
@@ -218,11 +274,9 @@ for r_id, i_name, freq, d_mon in rec_items:
       break
 
   if paid_matched:
-    if freq == "Monthly":
-      paid_period_val = current_month_str  # e.g., '2026-10'
-    else:
-      paid_period_val = current_year_str  # e.g., '2026'
-
+    paid_period_val = (
+        current_month_str if freq == "Monthly" else current_year_str
+    )
     cursor.execute(
         "UPDATE recurring_payments SET last_paid_period = ? WHERE id = ?",
         (paid_period_val, r_id),
@@ -230,7 +284,6 @@ for r_id, i_name, freq, d_mon in rec_items:
 
 conn.commit()
 
-# Calculate exact card-wise expense for current month
 cursor.execute(
     "SELECT payment_mode, amount FROM transactions WHERE date LIKE ? AND"
     " payment_mode LIKE 'CC:%'",
@@ -270,7 +323,6 @@ for c_name, d_date, l_paid in all_cards_for_alert:
   except:
     pass
 
-# Check recurring payments alerts (Loans & LIC)
 cursor.execute(
     "SELECT id, item_name, payment_type, amount, frequency, due_day,"
     " due_month, payment_mode, last_paid_period FROM recurring_payments"
@@ -295,7 +347,6 @@ for r_id, item_name, p_type, amt, freq, d_day, d_mon, p_mode, l_paid_per in (
             f" Date **{d_day} तारीख** को है! ({days_left} दिन बाकी)"
         )
     elif freq == "Yearly":
-      # check if current month matches due_month
       if current_month == int(d_mon):
         month_name = datetime(2026, int(d_mon), 1).strftime("%B")
         due_dt = datetime(current_year, int(d_mon), int(d_day))
@@ -342,6 +393,7 @@ menu = [
     "Edit Transaction",
     "Manage Credit Cards (Dates)",
     "Manage Loans & LIC",
+    "Manage Categories",
 ]
 choice = st.sidebar.selectbox("Menu", menu)
 
@@ -359,41 +411,7 @@ if choice == "Add Transaction":
       location = st.selectbox(
           "Location", ["Patna", "Barhiya", "Lakhisarai", "Others"]
       )
-
-      if location == "Patna":
-        sub_cat_options = [
-            "Room Misc.",
-            "Room Rishi",
-            "Office",
-            "Room Rent",
-            "Loan/LIC",
-            "Self",
-            "Room Others",
-            "Lagguage",
-            "Others",
-        ]
-      elif location == "Barhiya":
-        sub_cat_options = [
-            "Vegetable",
-            "Fruit",
-            "Medicine",
-            "Chhotu",
-            "Breakfast Market",
-            "Pagla Shop",
-            "Ice Cream",
-            "Mukhiya G",
-            "Munni G",
-            "Mother",
-            "Father",
-            "Self",
-            "Festival",
-            "Misc.",
-            "Others",
-        ]
-      elif location == "Lakhisarai":
-        sub_cat_options = ["Breakfast", "Toys", "Books", "Smita G", "Others"]
-      else:
-        sub_cat_options = ["Manual Entry (Others)"]
+      sub_cat_options = get_subcategories_for_location(cursor, location)
     else:
       sub_cat_options = [
           "Salary",
@@ -1287,7 +1305,6 @@ elif choice == "Manage Loans & LIC":
         "Select Loan / LIC to Mark Paid", rec_names_list, key="mark_rec_paid_sel"
     )
 
-    # Find frequency of selected item to determine period format
     cursor.execute(
         "SELECT frequency FROM recurring_payments WHERE item_name = ?",
         (selected_rec_to_pay,),
@@ -1332,3 +1349,77 @@ elif choice == "Manage Loans & LIC":
         st.rerun()
   else:
     st.info("कोई लोन या LIC दर्ज नहीं है।")
+
+# ----------------- 7. MANAGE CATEGORIES (DYNAMIC SUB-CATEGORIES) -----------------
+elif choice == "Manage Categories":
+  st.subheader(
+      "🏷️ लोकेशन और सब-कैटेगरी मैनेजर (Dynamic Sub-Category Manager)"
+  )
+  st.write(
+      "यहाँ आप Patna, Barhiya, Lakhisarai या Others के अंदर अपनी पसंद की नई"
+      " कैटेगरी या सब-मेनू खुद जोड़ सकते हैं।"
+  )
+
+  with st.form("add_cat_form", clear_on_submit=True):
+    sel_loc = st.selectbox(
+        "Select Location", ["Patna", "Barhiya", "Lakhisarai", "Others"]
+    )
+    new_sub_name = st.text_input("New Sub-Category / Item Name (जैसे: Grocery, Fuel...)")
+    add_cat_btn = st.form_submit_button("Add Sub-Category")
+
+    if add_cat_btn:
+      if new_sub_name.strip():
+        try:
+          cursor.execute(
+              "INSERT INTO custom_subcategories (location, sub_category_name)"
+              " VALUES (?, ?)",
+              (sel_loc, new_sub_name.strip()),
+          )
+          conn.commit()
+          success_ph = st.empty()
+          success_ph.success(
+              f"'{new_sub_name.strip()}' को '{sel_loc}' के अंतर्गत सफलतापूर्वक"
+              " जोड़ दिया गया है!"
+          )
+          time.sleep(1.5)
+          success_ph.empty()
+          st.rerun()
+        except:
+          st.error("यह सब-कैटेगरी पहले से इस लोकेशन में मौजूद है!")
+      else:
+        st.error("कृपया सब-कैटेगरी का नाम दर्ज करें!")
+
+  # View and Delete custom categories
+  cursor.execute(
+      "SELECT id, location, sub_category_name FROM custom_subcategories"
+  )
+  cat_records = cursor.fetchall()
+
+  if cat_records:
+    st.markdown("### 📋 आपके द्वारा जोड़ी गई कस्टम कैटेगरी की सूचियाँ")
+    cat_df = pd.DataFrame(
+        cat_records, columns=["ID", "Location", "Sub-Category Name"]
+    )
+    st.dataframe(cat_df, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### 🗑️ कोई कस्टम कैटेगरी हटाएं")
+    del_cat_id = st.number_input(
+        "Enter ID to Delete Category", min_value=0, step=1, key="del_cat"
+    )
+    if st.button("Delete Category", key="del_cat_btn"):
+      if del_cat_id > 0:
+        cursor.execute(
+            "DELETE FROM custom_subcategories WHERE id = ?", (del_cat_id,)
+        )
+        conn.commit()
+        success_ph = st.empty()
+        success_ph.success(f"ID {del_cat_id} सफलतापूर्वक हटा दिया गया!")
+        time.sleep(1.5)
+        success_ph.empty()
+        st.rerun()
+  else:
+    st.info(
+        "अभी कोई नई कस्टम कैटेगरी नहीं जोड़ी गई है (डिफ़ॉल्ट कैटेगरी काम कर रही"
+        " हैं)।"
+    )
