@@ -29,13 +29,14 @@ def init_db():
         )
     """)
 
-  # Credit Card Management table
+  # Credit Card Management table (added last_paid_month column to auto-detect/mark as paid)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS credit_cards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             card_name TEXT UNIQUE,
             billing_date INTEGER,
-            due_date INTEGER
+            due_date INTEGER,
+            last_paid_month TEXT DEFAULT ''
         )
     """)
 
@@ -60,6 +61,14 @@ def init_db():
         "ALTER TABLE transactions ADD COLUMN payment_mode TEXT DEFAULT 'Cash'"
     )
 
+  # Migration check for last_paid_month in credit_cards
+  cursor.execute("PRAGMA table_info(credit_cards)")
+  cc_columns = [col[1] for col in cursor.fetchall()]
+  if "last_paid_month" not in cc_columns:
+    cursor.execute(
+        "ALTER TABLE credit_cards ADD COLUMN last_paid_month TEXT DEFAULT ''"
+    )
+
   conn.commit()
   return conn
 
@@ -71,30 +80,30 @@ cursor = conn.cursor()
 cursor.execute("SELECT COUNT(*) FROM credit_cards")
 if cursor.fetchone()[0] == 0:
   initial_cards = [
-      ("ICICI - 6009", 1, 15),
-      ("ICICI - 9003", 1, 15),
-      ("Axis Bank - 5302", 1, 15),
-      ("HDFC - 9659", 1, 15),
-      ("HDFC - 0152", 1, 15),
-      ("ICICI - 5000", 1, 15),
-      ("ICICI - 7006", 1, 15),
-      ("SBI - 0160", 1, 15),
-      ("SBI - 2592", 1, 15),
-      ("SBI - 9183", 1, 15),
-      ("Yes Bank - 5409", 1, 15),
-      ("Yes Bank - 8111", 1, 15),
-      ("Axis Bank - 2718", 1, 15),
-      ("Axis Bank - 7535", 1, 15),
-      ("IndusInd Bank - 7035", 1, 15),
-      ("IndusInd Bank - 0737", 1, 15),
-      ("IDFC Bank - 5258", 1, 15),
-      ("IDFC Bank - 4878", 1, 15),
-      ("IDFC Bank - 9239", 1, 15),
-      ("Other Credit Card", 1, 15),
+      ("ICICI - 6009", 1, 15, ""),
+      ("ICICI - 9003", 1, 15, ""),
+      ("Axis Bank - 5302", 1, 15, ""),
+      ("HDFC - 9659", 1, 15, ""),
+      ("HDFC - 0152", 1, 15, ""),
+      ("ICICI - 5000", 1, 15, ""),
+      ("ICICI - 7006", 1, 15, ""),
+      ("SBI - 0160", 1, 15, ""),
+      ("SBI - 2592", 1, 15, ""),
+      ("SBI - 9183", 1, 15, ""),
+      ("Yes Bank - 5409", 1, 15, ""),
+      ("Yes Bank - 8111", 1, 15, ""),
+      ("Axis Bank - 2718", 1, 15, ""),
+      ("Axis Bank - 7535", 1, 15, ""),
+      ("IndusInd Bank - 7035", 1, 15, ""),
+      ("IndusInd Bank - 0737", 1, 15, ""),
+      ("IDFC Bank - 5258", 1, 15, ""),
+      ("IDFC Bank - 4878", 1, 15, ""),
+      ("IDFC Bank - 9239", 1, 15, ""),
+      ("Other Credit Card", 1, 15, ""),
   ]
   cursor.executemany(
-      "INSERT OR IGNORE INTO credit_cards (card_name, billing_date, due_date)"
-      " VALUES (?, ?, ?)",
+      "INSERT OR IGNORE INTO credit_cards (card_name, billing_date, due_date,"
+      " last_paid_month) VALUES (?, ?, ?, ?)",
       initial_cards,
   )
   conn.commit()
@@ -130,16 +139,39 @@ st.write(
     " आय-व्यय का पूरा हिसाब रखें।"
 )
 
-# ----------------- SMART 7-DAY DUE DATE RED ALERT -----------------
-cursor.execute("SELECT card_name, due_date FROM credit_cards")
-all_cards_for_alert = cursor.fetchall()
+# ----------------- SMART 7-DAY DUE DATE RED ALERT WITH AUTO-DETECT -----------------
 today = datetime.now()
 current_day = today.day
 current_month = today.month
 current_year = today.year
+current_month_str = today.strftime("%Y-%m")
+
+# Auto-detect payments: Check if any transaction in current month mentions CC payment
+cursor.execute(
+    "SELECT payment_mode, remarks FROM transactions WHERE date LIKE ?",
+    (f"{current_month_str}%",),
+)
+trans_rows = cursor.fetchall()
+
+for t_mode, t_remarks in trans_rows:
+  if t_mode and t_mode.startswith("CC:"):
+    card_n = t_mode.replace("CC: ", "").strip()
+    # Mark this card as paid for current month automatically
+    cursor.execute(
+        "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
+        (current_month_str, card_n),
+    )
+conn.commit()
+
+# Check alerts for cards not paid this month
+cursor.execute("SELECT card_name, due_date, last_paid_month FROM credit_cards")
+all_cards_for_alert = cursor.fetchall()
 
 alerts = []
-for c_name, d_date in all_cards_for_alert:
+for c_name, d_date, l_paid in all_cards_for_alert:
+  if l_paid == current_month_str:
+    continue  # Already paid for this month, skip alert
+
   try:
     due_dt = datetime(current_year, current_month, int(d_date))
     days_left = (due_dt - today).days
@@ -190,7 +222,6 @@ if alerts:
     st.markdown(alert)
 
 # Fetch current month summary for dashboard overview
-current_month_str = datetime.now().strftime("%Y-%m")
 cursor.execute(
     "SELECT type, amount, payment_mode FROM transactions WHERE date LIKE ?",
     (f"{current_month_str}%",),
@@ -341,6 +372,7 @@ if choice == "Add Transaction":
       )
       conn.commit()
       st.success("🎉 लेनदेन सफलतापूर्वक सुरक्षित हो गया!")
+      st.rerun()
 
 # ----------------- 2. REPORT & DASHBOARD SECTION -----------------
 elif choice == "Reports & Dashboard":
@@ -888,7 +920,8 @@ elif choice == "Manage Credit Cards (Dates)":
   )
   st.write(
       "यहाँ आप अपने सभी क्रेडिट कार्ड्स की **Billing Date** और **Due Date** सेट"
-      " या अपडेट कर सकते हैं।"
+      " या अपडेट कर सकते हैं। साथ ही 'Mark as Paid' से इस महीने का अलर्ट हटा सकते"
+      " हैं।"
   )
 
   with st.expander("➕ नया क्रेडिट कार्ड जोड़ें"):
@@ -906,9 +939,9 @@ elif choice == "Manage Credit Cards (Dates)":
         if new_card_name.strip():
           try:
             cursor.execute(
-                "INSERT INTO credit_cards (card_name, billing_date, due_date)"
-                " VALUES (?, ?, ?)",
-                (new_card_name.strip(), b_date, d_date),
+                "INSERT INTO credit_cards (card_name, billing_date, due_date,"
+                " last_paid_month) VALUES (?, ?, ?, ?)",
+                (new_card_name.strip(), b_date, d_date, ""),
             )
             conn.commit()
             st.success(f"कार्ड '{new_card_name}' सफलतापूर्वक जुड़ गया!")
@@ -919,21 +952,46 @@ elif choice == "Manage Credit Cards (Dates)":
           st.error("कृपया कार्ड का नाम दर्ज करें!")
 
   cursor.execute(
-      "SELECT id, card_name, billing_date, due_date FROM credit_cards"
+      "SELECT id, card_name, billing_date, due_date, last_paid_month FROM"
+      " credit_cards"
   )
   cc_records = cursor.fetchall()
 
   if cc_records:
     st.markdown("### 📋 आपके सभी क्रेडिट कार्ड्स की सूचियाँ और तिथियाँ")
     cc_df = pd.DataFrame(
-        cc_records, columns=["ID", "Card Name", "Billing Date", "Due Date"]
+        cc_records,
+        columns=["ID", "Card Name", "Billing Date", "Due Date", "Last Paid"],
     )
     st.dataframe(cc_df, use_container_width=True)
 
     st.markdown("---")
+    st.markdown(
+        "### ⚡ Quick Action: Mark Card as Paid for Current Month ("
+        + current_month_str
+        + ")"
+    )
+    card_names_list = [r[1] for r in cc_records]
+    selected_card_to_pay = st.selectbox(
+        "Select Card to Mark Paid", card_names_list, key="mark_paid_sel"
+    )
+
+    if st.button("✅ Mark as Paid (भुगतान हो गया)"):
+      cursor.execute(
+          "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
+          (current_month_str, selected_card_to_pay),
+      )
+      conn.commit()
+      st.success(
+          f"🎉 कार्ड '{selected_card_to_pay}' को इस महीने के लिए Paid मार्क कर"
+          " दिया गया है! अलर्ट हट गया है।"
+      )
+      st.rerun()
+
+    st.markdown("---")
     st.markdown("### ✏️ किसी कार्ड की तारीख अपडेट करें")
     selected_card_to_edit = st.selectbox(
-        "Choose Card to Update", cc_df["Card Name"].tolist()
+        "Choose Card to Update", card_names_list, key="update_date_sel"
     )
 
     cursor.execute(
