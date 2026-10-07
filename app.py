@@ -9,7 +9,7 @@ st.set_page_config(
 )
 
 
-# database connection and initialization (with payment_mode column check)
+# database connection and initialization
 def init_db():
   conn = sqlite3.connect("comprehensive_finance.db", check_same_thread=False)
   cursor = conn.cursor()
@@ -57,7 +57,7 @@ st.write(
 )
 
 # menu selection
-menu = ["Add Transaction", "Reports & Dashboard"]
+menu = ["Add Transaction", "Reports & Dashboard", "Edit Transaction"]
 choice = st.sidebar.selectbox("Menu", menu)
 
 # ----------------- 1. TRANSACTION ADD SECTION -----------------
@@ -128,7 +128,6 @@ if choice == "Add Transaction":
         "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
     )
 
-    # Payment Mode selection
     payment_mode = st.selectbox(
         "Payment Mode",
         ["UPI", "Credit Card", "Debit Card", "Cash", "Net Banking", "Other"],
@@ -169,7 +168,6 @@ if choice == "Add Transaction":
 elif choice == "Reports & Dashboard":
   st.subheader("📊 रिपोर्ट और विस्तृत विश्लेषण (Reports & Dashboard)")
 
-  # fetch all data including payment_mode
   cursor.execute(
       "SELECT id, date, type, location, sub_category, amount, payment_mode,"
       " remarks FROM transactions ORDER BY id DESC"
@@ -222,7 +220,6 @@ elif choice == "Reports & Dashboard":
           "Filter by Payment Mode", ["All"] + list(df["Payment_Mode"].unique())
       )
 
-    # Apply filters
     filtered_df = df.copy()
 
     if filter_type != "All":
@@ -237,7 +234,6 @@ elif choice == "Reports & Dashboard":
     if filter_pay != "All":
       filtered_df = filtered_df[filtered_df["Payment_Mode"] == filter_pay]
 
-    # Time Period Filtering Logic
     current_year = datetime.now().year
 
     if period == "Monthly":
@@ -319,7 +315,6 @@ elif choice == "Reports & Dashboard":
 
     st.markdown("---")
 
-    # Metrics display for filtered results
     tot_income = filtered_df[filtered_df["Type"] == "Income"]["Amount"].sum()
     tot_expense = filtered_df[filtered_df["Type"] == "Expense"]["Amount"].sum()
     net_val = tot_income - tot_expense
@@ -344,7 +339,6 @@ elif choice == "Reports & Dashboard":
     ]
     st.dataframe(display_df, use_container_width=True)
 
-    # Breakdown Summaries
     if not filtered_df.empty:
       col_sum1, col_sum2 = st.columns(2)
 
@@ -364,11 +358,15 @@ elif choice == "Reports & Dashboard":
         st.dataframe(cat_summary, use_container_width=True)
 
       with col_sum2:
-        st.markdown("### 💳 Payment Mode Wise Breakdown")
-        pay_summary = (
-            filtered_df.groupby(["Payment_Mode"])["Amount"].sum().reset_index()
+        st.markdown(
+            "### 💳 Payment Mode Wise Breakdown (Income & Expense Alag-Alag)"
         )
-        pay_summary.columns = ["Payment Mode", "Total (Rs)"]
+        pay_summary = (
+            filtered_df.groupby(["Payment_Mode", "Type"])["Amount"]
+            .sum()
+            .reset_index()
+        )
+        pay_summary.columns = ["Payment Mode", "Type", "Total (Rs)"]
         st.dataframe(pay_summary, use_container_width=True)
 
     st.markdown("### 🗑️ Delete Transaction")
@@ -383,3 +381,88 @@ elif choice == "Reports & Dashboard":
         st.rerun()
   else:
     st.info("डेटाबेस में अभी कोई लेनदेन दर्ज नहीं है।")
+
+# ----------------- 3. TRANSACTION EDIT SECTION -----------------
+elif choice == "Edit Transaction":
+  st.subheader("✏️ लेनदेन संपादित करें (Edit Existing Entry)")
+
+  edit_id = st.number_input(
+      "Enter Transaction ID to Edit", min_value=1, step=1
+  )
+
+  cursor.execute(
+      "SELECT id, date, type, location, sub_category, amount, payment_mode,"
+      " remarks FROM transactions WHERE id = ?",
+      (edit_id,),
+  )
+  record = cursor.fetchone()
+
+  if record:
+    (
+        r_id,
+        r_date,
+        r_type,
+        r_location,
+        r_sub_cat,
+        r_amount,
+        r_pay_mode,
+        r_remarks,
+    ) = record
+
+    st.info(f"Editing Transaction ID: {r_id} (Date: {r_date})")
+
+    with st.form("edit_form"):
+      new_type = st.selectbox(
+          "Type", ["Expense", "Income"], index=0 if r_type == "Expense" else 1
+      )
+
+      # Location options setup for edit
+      loc_list = ["Patna", "Barhiya", "Lakhisarai", "Others"]
+      try:
+        loc_index = loc_list.index(r_location)
+      except:
+        loc_index = 0
+
+      new_location = st.selectbox("Location", loc_list, index=loc_index)
+
+      new_sub_cat = st.text_input("Sub-Category / Category", value=r_sub_cat)
+      new_amount = st.number_input(
+          "Amount (Rs)", min_value=0.0, format="%.2f", value=float(r_amount)
+      )
+
+      pay_modes = ["UPI", "Credit Card", "Debit Card", "Cash", "Net Banking", "Other"]
+      try:
+        pay_index = pay_modes.index(r_pay_mode)
+      except:
+        pay_index = 0
+
+      new_pay_mode = st.selectbox("Payment Mode", pay_modes, index=pay_index)
+      new_remarks = st.text_area("Remarks", value=r_remarks)
+
+      update_btn = st.form_submit_button("Update Transaction")
+
+      if update_btn:
+        if new_amount <= 0:
+          st.error("कृपया सही राशि दर्ज करें!")
+        elif not new_sub_cat.strip():
+          st.error("कृपया कैटेगरी दर्ज करें!")
+        else:
+          cursor.execute(
+              """UPDATE transactions SET type = ?, location = ?, category = ?,"
+              " sub_category = ?, amount = ?, payment_mode = ?, remarks = ? WHERE"
+              " id = ?""",
+              (
+                  new_type,
+                  new_location,
+                  new_sub_cat,
+                  new_sub_cat,
+                  new_amount,
+                  new_pay_mode,
+                  new_remarks,
+                  edit_id,
+              ),
+          )
+          conn.commit()
+          st.success(f"🎉 Transaction ID {edit_id} सफलतापूर्वक अपडेट हो गया!")
+  else:
+    st.warning("درج की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
