@@ -281,117 +281,120 @@ choice = st.sidebar.selectbox("Menu", menu)
 if choice == "Add Transaction":
   st.subheader("📝 नया लेनदेन दर्ज करें (Add New Entry)")
 
-  t_type = st.selectbox("Type", ["Expense", "Income"], key="add_type")
+  with st.form("add_trans_form", clear_on_submit=True):
+    t_type = st.selectbox("Type", ["Expense", "Income"])
 
-  location = "Income Source"
-  sub_cat_options = []
+    location = "Income Source"
+    sub_cat_options = []
 
-  if t_type == "Expense":
-    location = st.selectbox(
-        "Location", ["Patna", "Barhiya", "Lakhisarai", "Others"], key="add_loc"
-    )
-
-    if location == "Patna":
-      sub_cat_options = [
-          "Room Misc.",
-          "Room Rishi",
-          "Office",
-          "Room Rent",
-          "Loan/LIC",
-          "Self",
-          "Room Others",
-          "Lagguage",
-          "Others",
-      ]
-    elif location == "Barhiya":
-      sub_cat_options = [
-          "Vegetable",
-          "Fruit",
-          "Medicine",
-          "Chhotu",
-          "Breakfast Market",
-          "Pagla Shop",
-          "Ice Cream",
-          "Mukhiya G",
-          "Munni G",
-          "Mother",
-          "Father",
-          "Self",
-          "Festival",
-          "Misc.",
-          "Others",
-      ]
-    elif location == "Lakhisarai":
-      sub_cat_options = ["Breakfast", "Toys", "Books", "Smita G", "Others"]
-    else:
-      sub_cat_options = ["Manual Entry (Others)"]
-  else:
-    sub_cat_options = [
-        "Salary",
-        "Refund From Amazon",
-        "Refund From Flipkart",
-        "Refund From Other Online Platform",
-        "Smita G",
-        "Office",
-        "Advocate",
-        "Others",
-    ]
-
-  sub_cat = st.selectbox("Sub-Category", sub_cat_options, key="add_subcat")
-
-  manual_cat = ""
-  if sub_cat == "Others" or location == "Others":
-    manual_cat = st.text_input(
-        "Type custom category name if Others", key="add_manual"
-    )
-
-  amount = st.number_input(
-      "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0, key="add_amount"
-  )
-
-  pay_modes = ["Cash", "Credit Card", "UPI", "Debit Card", "Net Banking", "Other"]
-  base_payment_mode = st.selectbox(
-      "Payment Mode", pay_modes, key="add_paymode"
-  )
-
-  final_payment_mode = base_payment_mode
-
-  if base_payment_mode == "Credit Card":
-    cc_list = get_sorted_cc_list(cursor)
-    credit_card_choice = st.selectbox(
-        "Select Credit Card", cc_list, key="add_cc_choice"
-    )
-    final_payment_mode = f"CC: {credit_card_choice}"
-
-  remarks = st.text_area("Remarks (विवरण या नोट)", key="add_remarks")
-
-  if st.button("Save Transaction", key="add_submit"):
-    final_sub_cat = manual_cat.strip() if manual_cat.strip() else sub_cat
-
-    if amount <= 0:
-      st.error("कृपया सही राशि (Amount) दर्ज करें!")
-    elif not final_sub_cat:
-      st.error("कृपया कैटेगरी की जानकारी दें!")
-    else:
-      date_str = datetime.now().strftime("%Y-%m-%d")
-      cursor.execute(
-          "INSERT INTO transactions (date, type, location, category,"
-          " sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?, ?, ?,"
-          " ?, ?, ?)",
-          (
-              date_str,
-              t_type,
-              location,
-              final_sub_cat,
-              final_sub_cat,
-              amount,
-              final_payment_mode,
-              remarks,
-          ),
+    if t_type == "Expense":
+      location = st.selectbox(
+          "Location", ["Patna", "Barhiya", "Lakhisarai", "Others"]
       )
-      conn.commit()
-      st.success("🎉 लेनदेन सफलतापूर्वक सुरक्षित हो गया!")
-      st.rerun()
+
+      if location == "Patna":
+        sub_cat_options = [
+            "Room Misc.",
+            "Room Rishi",
+            "Office",
+            "Room Rent",
+            "Loan/LIC",
+            "Self",
+            "Room Others",
+            "Lagguage",
+            "Others",
+        ]
+      elif location == "Barhiya":
+        sub_cat_options = [
+            "Vegetable",
+            "Fruit",
+            "Medicine",
+            "Chhotu",
+            "Breakfast Market",
+            "Pagla Shop",
+            "Ice Cream",
+            "Mukhiya G",
+            "Munni G",
+            "Mother",
+            "Father",
+            "Self",
+            "Festival",
+            "Misc.",
+            "Others",
+        ]
+      elif location == "Lakhisarai":
+        sub_cat_options = ["Breakfast", "Toys", "Books", "Smita G", "Others"]
+      else:
+        sub_cat_options = ["Manual Entry (Others)"]
+    else:
+      sub_cat_options = [
+          "Salary",
+          "Refund From Amazon",
+          "Refund From Flipkart",
+          "Refund From Other Online Platform",
+          "Smita G",
+          "Office",
+          "Advocate",
+          "Others",
+      ]
+
+    sub_cat = st.selectbox("Sub-Category", sub_cat_options)
+
+    manual_cat = ""
+    if sub_cat == "Others" or location == "Others":
+      manual_cat = st.text_input("Type custom category name if Others")
+
+    amount = st.number_input(
+        "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
+    )
+
+    pay_modes = [
+        "Cash",
+        "Credit Card",
+        "UPI",
+        "Debit Card",
+        "Net Banking",
+        "Other",
+    ]
+    base_payment_mode = st.selectbox("Payment Mode", pay_modes)
+
+    final_payment_mode = base_payment_mode
+
+    if base_payment_mode == "Credit Card":
+      cc_list = get_sorted_cc_list(cursor)
+      credit_card_choice = st.selectbox("Select Credit Card", cc_list)
+      final_payment_mode = f"CC: {credit_card_choice}"
+
+    remarks = st.text_area("Remarks (विवरण या नोट)")
+    submit_btn = st.form_submit_button("Save Transaction")
+
+    if submit_btn:
+      final_sub_cat = manual_cat.strip() if manual_cat.strip() else sub_cat
+
+      if amount <= 0:
+        st.error("कृपया सही राशि (Amount) दर्ज करें!")
+      elif not final_sub_cat:
+        st.error("कृपया कैटेगरी की जानकारी दें!")
+      else:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        cursor.execute(
+            "INSERT INTO transactions (date, type, location, category,"
+            " sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?, ?,"
+            " ?, ?, ?, ?)",
+            (
+                date_str,
+                t_type,
+                location,
+                final_sub_cat,
+                final_sub_cat,
+                amount,
+                final_payment_mode,
+                remarks,
+            ),
+        )
+        conn.commit()
+        st.success("🎉 लेनदेन सफलतापूर्वक सुरक्षित हो गया!")
+        st.rerun()
 
 # ----------------- 2. REPORT & DASHBOARD SECTION -----------------
 elif choice == "Reports & Dashboard":
@@ -553,7 +556,6 @@ elif choice == "Reports & Dashboard":
     m2.metric("Filtered Expense", f"Rs {tot_expense:,.2f}")
     m3.metric("Net Balance", f"Rs {net_val:,.2f}")
 
-    # DataFrame for display (original column names)
     disp_df = filtered_df[
         [
             "ID",
@@ -567,7 +569,6 @@ elif choice == "Reports & Dashboard":
         ]
     ]
 
-    # DataFrame for CSV export (renamed columns)
     export_df = disp_df.copy()
     export_df.rename(
         columns={
@@ -947,7 +948,7 @@ elif choice == "Manage Credit Cards (Dates)":
   )
 
   with st.expander("➕ नया क्रेडिट कार्ड जोड़ें"):
-    with st.form("add_cc_form"):
+    with st.form("add_cc_form", clear_on_submit=True):
       new_card_name = st.text_input("Card Name (जैसे: HDFC - XXXX)")
       b_date = st.number_input(
           "Billing Date (1-31)", min_value=1, max_value=31, value=1
@@ -1022,7 +1023,7 @@ elif choice == "Manage Credit Cards (Dates)":
     )
     curr_b, curr_d = cursor.fetchone()
 
-    with st.form("update_cc_form"):
+    with st.form("update_cc_form", clear_on_submit=True):
       up_b = st.number_input(
           "New Billing Date",
           min_value=1,
@@ -1063,7 +1064,7 @@ elif choice == "Manage Loans & LIC":
   )
 
   with st.expander("➕ नया लोन या LIC जोड़ें"):
-    with st.form("add_rec_form"):
+    with st.form("add_rec_form", clear_on_submit=True):
       r_name = st.text_input("Name (जैसे: Kotak Loan, LIC Policy No...)")
       r_type = st.selectbox("Type", ["Loan", "LIC", "Insurance", "Other"])
       r_amount = st.number_input(
