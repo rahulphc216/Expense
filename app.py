@@ -26,7 +26,6 @@ def init_db():
             remarks TEXT
         )
     """)
-  # migration check if payment_mode column is missing in older db
   cursor.execute("PRAGMA table_info(transactions)")
   columns = [col[1] for col in cursor.fetchall()]
   if "payment_mode" not in columns:
@@ -64,14 +63,14 @@ choice = st.sidebar.selectbox("Menu", menu)
 if choice == "Add Transaction":
   st.subheader("📝 नया लेनदेन दर्ज करें (Add New Entry)")
 
-  t_type = st.selectbox("Type", ["Expense", "Income"])
+  t_type = st.selectbox("Type", ["Expense", "Income"], key="add_type")
 
   location = "Income Source"
   sub_cat_options = []
 
   if t_type == "Expense":
     location = st.selectbox(
-        "Location", ["Patna", "Barhiya", "Lakhisarai", "Others"]
+        "Location", ["Patna", "Barhiya", "Lakhisarai", "Others"], key="add_loc"
     )
 
     if location == "Patna":
@@ -117,82 +116,83 @@ if choice == "Add Transaction":
         "Others",
     ]
 
-  with st.form("transaction_form", clear_on_submit=True):
-    sub_cat = st.selectbox("Sub-Category", sub_cat_options)
+  sub_cat = st.selectbox("Sub-Category", sub_cat_options, key="add_subcat")
 
-    manual_cat = ""
-    if sub_cat == "Others" or location == "Others":
-      manual_cat = st.text_input("Type custom category name if Others")
-
-    amount = st.number_input(
-        "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
+  manual_cat = ""
+  if sub_cat == "Others" or location == "Others":
+    manual_cat = st.text_input(
+        "Type custom category name if Others", key="add_manual"
     )
 
-    base_payment_mode = st.selectbox(
-        "Payment Mode",
-        ["UPI", "Credit Card", "Debit Card", "Cash", "Net Banking", "Other"],
+  amount = st.number_input(
+      "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0, key="add_amount"
+  )
+
+  base_payment_mode = st.selectbox(
+      "Payment Mode",
+      ["UPI", "Credit Card", "Debit Card", "Cash", "Net Banking", "Other"],
+      key="add_paymode",
+  )
+
+  final_payment_mode = base_payment_mode
+
+  # If Credit Card is selected, show specific card options right outside form for reactivity
+  if base_payment_mode == "Credit Card":
+    cc_list = [
+        "ICICI - 6009",
+        "ICICI - 9003",
+        "Axis Bank - 5302",
+        "HDFC - 9659",
+        "HDFC - 0152",
+        "ICICI - 5000",
+        "ICICI - 7006",
+        "SBI - 0160",
+        "SBI - 2592",
+        "SBI - 9183",
+        "Yes Bank - 5409",
+        "Yes Bank - 8111",
+        "Axis Bank - 2718",
+        "Axis Bank - 7535",
+        "IndusInd Bank - 7035",
+        "IndusInd Bank - 0737",
+        "IDFC Bank - 5258",
+        "IDFC Bank - 4878",
+        "IDFC Bank - 9239",
+        "Other Credit Card",
+    ]
+    credit_card_choice = st.selectbox(
+        "Select Credit Card", cc_list, key="add_cc_choice"
     )
+    final_payment_mode = f"CC: {credit_card_choice}"
 
-    final_payment_mode = base_payment_mode
+  remarks = st.text_area("Remarks (विवरण या नोट)", key="add_remarks")
 
-    # If Credit Card is selected, show specific card options
-    credit_card_choice = ""
-    if base_payment_mode == "Credit Card":
-      cc_list = [
-          "HDFC - 9659",
-          "HDFC - 0152",
-          "ICICI - 6009",
-          "ICICI - 9003",
-          "ICICI - 5000",
-          "ICICI - 7006",
-          "SBI - 0160",
-          "SBI - 2592",
-          "SBI - 9183",
-          "Yes Bank - 5409",
-          "Yes Bank - 8111",
-          "Axis Bank - 2718",
-          "Axis Bank - 7535",
-          "Axis Bank - 5302",
-          "IndusInd Bank - 7035",
-          "IndusInd Bank - 0737",
-          "IDFC Bank - 5258",
-          "IDFC Bank - 4878",
-          "IDFC Bank - 9239",
-          "Other Credit Card",
-      ]
-      credit_card_choice = st.selectbox("Select Credit Card", cc_list)
-      final_payment_mode = f"CC: {credit_card_choice}"
+  if st.button("Save Transaction", key="add_submit"):
+    final_sub_cat = manual_cat.strip() if manual_cat.strip() else sub_cat
 
-    remarks = st.text_area("Remarks (विवरण या नोट)")
-
-    submit_button = st.form_submit_button(label="Save Transaction")
-
-    if submit_button:
-      final_sub_cat = manual_cat.strip() if manual_cat.strip() else sub_cat
-
-      if amount <= 0:
-        st.error("कृपया सही राशि (Amount) दर्ज करें!")
-      elif not final_sub_cat:
-        st.error("कृपया कैटेगरी की जानकारी दें!")
-      else:
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        cursor.execute(
-            "INSERT INTO transactions (date, type, location, category,"
-            " sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?,"
-            " ?, ?, ?, ?, ?)",
-            (
-                date_str,
-                t_type,
-                location,
-                final_sub_cat,
-                final_sub_cat,
-                amount,
-                final_payment_mode,
-                remarks,
-            ),
-        )
-        conn.commit()
-        st.success("🎉 लेनदेन सफलतापूर्वक सुरक्षित हो गया!")
+    if amount <= 0:
+      st.error("कृपया सही राशि (Amount) दर्ज करें!")
+    elif not final_sub_cat:
+      st.error("कृपया कैटेगरी की जानकारी दें!")
+    else:
+      date_str = datetime.now().strftime("%Y-%m-%d")
+      cursor.execute(
+          "INSERT INTO transactions (date, type, location, category,"
+          " sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?, ?, ?,"
+          " ?, ?, ?)",
+          (
+              date_str,
+              t_type,
+              location,
+              final_sub_cat,
+              final_sub_cat,
+              amount,
+              final_payment_mode,
+              remarks,
+          ),
+      )
+      conn.commit()
+      st.success("🎉 लेनदेन सफलतापूर्वक सुरक्षित हो गया!")
 
 # ----------------- 2. REPORT & DASHBOARD SECTION -----------------
 elif choice == "Reports & Dashboard":
@@ -441,105 +441,102 @@ elif choice == "Edit Transaction":
 
     st.info(f"Editing Transaction ID: {r_id} (Date: {r_date})")
 
-    with st.form("edit_form", clear_on_submit=True):
-      new_type = st.selectbox(
-          "Type", ["Expense", "Income"], index=0 if r_type == "Expense" else 1
-      )
+    new_type = st.selectbox(
+        "Type",
+        ["Expense", "Income"],
+        index=0 if r_type == "Expense" else 1,
+        key="edit_type",
+    )
 
-      loc_list = ["Patna", "Barhiya", "Lakhisarai", "Others"]
-      try:
-        loc_index = loc_list.index(r_location)
-      except:
-        loc_index = 0
+    loc_list = ["Patna", "Barhiya", "Lakhisarai", "Others"]
+    try:
+      loc_index = loc_list.index(r_location)
+    except:
+      loc_index = 0
 
-      new_location = st.selectbox("Location", loc_list, index=loc_index)
+    new_location = st.selectbox(
+        "Location", loc_list, index=loc_index, key="edit_loc"
+    )
 
-      new_sub_cat = st.text_input("Sub-Category / Category", value=r_sub_cat)
-      new_amount = st.number_input(
-          "Amount (Rs)", min_value=0.0, format="%.2f", value=float(r_amount)
-      )
+    new_sub_cat = st.text_input(
+        "Sub-Category / Category", value=r_sub_cat, key="edit_subcat"
+    )
+    new_amount = st.number_input(
+        "Amount (Rs)",
+        min_value=0.0,
+        format="%.2f",
+        value=float(r_amount),
+        key="edit_amount",
+    )
 
-      pay_modes = [
-          "UPI",
-          "Credit Card",
-          "Debit Card",
-          "Cash",
-          "Net Banking",
-          "Other",
+    pay_modes = ["UPI", "Credit Card", "Debit Card", "Cash", "Net Banking", "Other"]
+    default_pay_idx = 0
+    if r_pay_mode.startswith("CC: "):
+      default_pay_idx = 1
+
+    new_pay_mode = st.selectbox(
+        "Payment Mode", pay_modes, index=default_pay_idx, key="edit_paymode"
+    )
+
+    final_edit_pay_mode = new_pay_mode
+    if new_pay_mode == "Credit Card":
+      cc_list = [
+          "ICICI - 6009",
+          "ICICI - 9003",
+          "Axis Bank - 5302",
+          "HDFC - 9659",
+          "HDFC - 0152",
+          "ICICI - 5000",
+          "ICICI - 7006",
+          "SBI - 0160",
+          "SBI - 2592",
+          "SBI - 9183",
+          "Yes Bank - 5409",
+          "Yes Bank - 8111",
+          "Axis Bank - 2718",
+          "Axis Bank - 7535",
+          "IndusInd Bank - 7035",
+          "IndusInd Bank - 0737",
+          "IDFC Bank - 5258",
+          "IDFC Bank - 4878",
+          "IDFC Bank - 9239",
+          "Other Credit Card",
       ]
-      # Try to see if it starts with CC
-      default_pay_idx = 0
-      if r_pay_mode.startswith("CC: "):
-        default_pay_idx = 1  # Credit card index
+      cc_index = 0
+      extracted_card = r_pay_mode.replace("CC: ", "")
+      if extracted_card in cc_list:
+        cc_index = cc_list.index(extracted_card)
 
-      new_pay_mode = st.selectbox(
-          "Payment Mode", pay_modes, index=default_pay_idx
+      selected_cc_edit = st.selectbox(
+          "Select Credit Card", cc_list, index=cc_index, key="edit_cc_choice"
       )
+      final_edit_pay_mode = f"CC: {selected_cc_edit}"
 
-      final_edit_pay_mode = new_pay_mode
-      if new_pay_mode == "Credit Card":
-        cc_list = [
-            "HDFC - 9659",
-            "HDFC - 0152",
-            "ICICI - 6009",
-            "ICICI - 9003",
-            "ICICI - 5000",
-            "ICICI - 7006",
-            "SBI - 0160",
-            "SBI - 2592",
-            "SBI - 9183",
-            "Yes Bank - 5409",
-            "Yes Bank - 8111",
-            "Axis Bank - 2718",
-            "Axis Bank - 7535",
-            "Axis Bank - 5302",
-            "IndusInd Bank - 7035",
-            "IndusInd Bank - 0737",
-            "IDFC Bank - 5258",
-            "IDFC Bank - 4878",
-            "IDFC Bank - 9239",
-            "Other Credit Card",
-        ]
-        # find index if previous was CC
-        cc_index = 0
-        extracted_card = r_pay_mode.replace("CC: ", "")
-        if extracted_card in cc_list:
-          cc_index = cc_list.index(extracted_card)
+    new_remarks = st.text_area("Remarks", value=r_remarks, key="edit_remarks")
 
-        selected_cc_edit = st.selectbox(
-            "Select Credit Card", cc_list, index=cc_index
+    if st.button("Update Transaction", key="edit_submit"):
+      if new_amount <= 0:
+        st.error("कृपया सही राशि दर्ज करें!")
+      elif not new_sub_cat.strip():
+        st.error("कृपया कैटेगरी दर्ज करें!")
+      else:
+        cursor.execute(
+            "UPDATE transactions SET type = ?, location = ?, category = ?,"
+            " sub_category = ?, amount = ?, payment_mode = ?, remarks = ? WHERE"
+            " id = ?",
+            (
+                new_type,
+                new_location,
+                new_sub_cat,
+                new_sub_cat,
+                new_amount,
+                final_edit_pay_mode,
+                new_remarks,
+                edit_id,
+            ),
         )
-        final_edit_pay_mode = f"CC: {selected_cc_edit}"
-
-      new_remarks = st.text_area("Remarks", value=r_remarks)
-
-      update_btn = st.form_submit_button("Update Transaction")
-
-      if update_btn:
-        if new_amount <= 0:
-          st.error("कृपया सही राशि दर्ज करें!")
-        elif not new_sub_cat.strip():
-          st.error("कृपया कैटेगरी दर्ज करें!")
-        else:
-          cursor.execute(
-              "UPDATE transactions SET type = ?, location = ?, category = ?,"
-              " sub_category = ?, amount = ?, payment_mode = ?, remarks = ? WHERE"
-              " id = ?",
-              (
-                  new_type,
-                  new_location,
-                  new_sub_cat,
-                  new_sub_cat,
-                  new_amount,
-                  final_edit_pay_mode,
-                  new_remarks,
-                  edit_id,
-              ),
-          )
-          conn.commit()
-          st.success(
-              f"🎉 Transaction ID {edit_id} सफलतापूर्वक अपडेट हो गया!"
-          )
-          st.rerun()
+        conn.commit()
+        st.success(f"🎉 Transaction ID {edit_id} सफलतापूर्वक अपडेट हो गया!")
+        st.rerun()
   else:
     st.warning("दर्ज की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
