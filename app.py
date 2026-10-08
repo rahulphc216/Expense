@@ -56,12 +56,13 @@ def init_db():
         )
     """)
 
-  # Custom Sub-Categories table for Locations
+  # Custom Sub-Categories table for Locations (Expense & Income)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS custom_subcategories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            transaction_type TEXT,
             location TEXT,
-            sub_category_name TEXT UNIQUE
+            sub_category_name TEXT
         )
     """)
 
@@ -165,46 +166,77 @@ def get_sorted_cc_list(cursor):
   return sorted_list
 
 
-# Helper function to fetch sub-categories (default + custom)
-def get_subcategories_for_location(cursor, location):
-  defaults = {
-      "Patna": [
-          "Room Misc.",
-          "Room Rishi",
-          "Office",
-          "Room Rent",
-          "Loan/LIC",
-          "Self",
-          "Room Others",
-          "Lagguage",
-          "Others",
-      ],
-      "Barhiya": [
-          "Vegetable",
-          "Fruit",
-          "Medicine",
-          "Chhotu",
-          "Breakfast Market",
-          "Pagla Shop",
-          "Ice Cream",
-          "Mukhiya G",
-          "Munni G",
-          "Mother",
-          "Father",
-          "Self",
-          "Festival",
-          "Misc.",
-          "Others",
-      ],
-      "Lakhisarai": ["Breakfast", "Toys", "Books", "Smita G", "Others"],
-      "Others": ["Manual Entry (Others)"],
-  }
+# Helper function to fetch dynamic sub-categories and locations
+def get_locations_for_type(cursor, trans_type):
+  if trans_type == "Expense":
+    base_locs = ["Patna", "Barhiya", "Lakhisarai", "Others"]
+  else:
+    base_locs = ["Income Source"]
 
-  base_list = defaults.get(location, ["Others"])
+  # Check custom locations if added
+  cursor.execute(
+      "SELECT DISTINCT location FROM custom_subcategories WHERE"
+      " transaction_type = ?",
+      (trans_type,),
+  )
+  rows = cursor.fetchall()
+  for r in rows:
+    if r[0] not in base_locs:
+      base_locs.insert(-1, r[0])
+  return base_locs
+
+
+def get_subcategories_for_location(cursor, trans_type, location):
+  if trans_type == "Expense":
+    defaults = {
+        "Patna": [
+            "Room Misc.",
+            "Room Rishi",
+            "Office",
+            "Room Rent",
+            "Loan/LIC",
+            "Self",
+            "Room Others",
+            "Lagguage",
+            "Others",
+        ],
+        "Barhiya": [
+            "Vegetable",
+            "Fruit",
+            "Medicine",
+            "Chhotu",
+            "Breakfast Market",
+            "Pagla Shop",
+            "Ice Cream",
+            "Mukhiya G",
+            "Munni G",
+            "Mother",
+            "Father",
+            "Self",
+            "Festival",
+            "Misc.",
+            "Others",
+        ],
+        "Lakhisarai": ["Breakfast", "Toys", "Books", "Smita G", "Others"],
+        "Others": ["Manual Entry (Others)"],
+    }
+    base_list = defaults.get(location, ["Others"])
+  else:
+    base_list = [
+        "Salary",
+        "Refund From Amazon",
+        "Refund From Flipkart",
+        "Refund From Other Online Platform",
+        "Smita G",
+        "Office",
+        "Advocate",
+        "Others",
+    ]
 
   cursor.execute(
-      "SELECT sub_category_name FROM custom_subcategories WHERE location = ?",
-      (location,),
+      "SELECT sub_category_name FROM custom_subcategories WHERE"
+      " transaction_type = ? AND location = ?",
+      (trans_type, location),
   )
   custom_rows = cursor.fetchall()
   for r in custom_rows:
@@ -401,32 +433,18 @@ if choice == "Add Transaction":
   st.subheader("📝 नया लेनदेन दर्ज करें (Add New Entry)")
 
   with st.form("add_trans_form", clear_on_submit=True):
-    # Added Date Selection so user can backdate transactions (e.g. forgot yesterday)
     trans_date = st.date_input("Transaction Date", value=datetime.now().date())
-
     t_type = st.selectbox("Type", ["Expense", "Income"])
 
-    location = "Income Source"
-    sub_cat_options = []
+    loc_options = get_locations_for_type(cursor, t_type)
+    location = st.selectbox(
+        "Location / Main Menu", loc_options
+    )
 
-    if t_type == "Expense":
-      location = st.selectbox(
-          "Location", ["Patna", "Barhiya", "Lakhisarai", "Others"]
-      )
-      sub_cat_options = get_subcategories_for_location(cursor, location)
-    else:
-      sub_cat_options = [
-          "Salary",
-          "Refund From Amazon",
-          "Refund From Flipkart",
-          "Refund From Other Online Platform",
-          "Smita G",
-          "Office",
-          "Advocate",
-          "Others",
-      ]
-
-    sub_cat = st.selectbox("Sub-Category", sub_cat_options)
+    sub_cat_options = get_subcategories_for_location(
+        cursor, t_type, location
+    )
+    sub_cat = st.selectbox("Sub-Category / Item", sub_cat_options)
 
     manual_cat = ""
     if sub_cat == "Others" or location == "Others":
@@ -436,22 +454,39 @@ if choice == "Add Transaction":
         "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
     )
 
-    pay_modes = [
-        "Cash",
-        "Credit Card",
-        "UPI",
-        "Debit Card",
-        "Net Banking",
-        "Other",
-    ]
-    base_payment_mode = st.selectbox("Payment Mode", pay_modes)
+    # Check if Income is a Refund from Amazon/Flipkart/Other Online Platforms
+    is_cc_refund = False
+    if t_type == "Income" and sub_cat in [
+        "Refund From Amazon",
+        "Refund From Flipkart",
+        "Refund From Other Online Platform",
+    ]:
+      is_cc_refund = True
 
-    final_payment_mode = base_payment_mode
-
-    if base_payment_mode == "Credit Card":
+    if is_cc_refund:
+      st.info(
+          "💡 यह ऑनलाइन रिफंड है। कृपया वह क्रेडिट कार्ड चुनें जिसमें यह राशि"
+          " आई है:"
+      )
       cc_list = get_sorted_cc_list(cursor)
-      credit_card_choice = st.selectbox("Select Credit Card", cc_list)
+      credit_card_choice = st.selectbox("Select Credit Card for Refund", cc_list)
       final_payment_mode = f"CC: {credit_card_choice}"
+    else:
+      pay_modes = [
+          "Cash",
+          "Credit Card",
+          "UPI",
+          "Debit Card",
+          "Net Banking",
+          "Other",
+      ]
+      base_payment_mode = st.selectbox("Payment Mode", pay_modes)
+      final_payment_mode = base_payment_mode
+
+      if base_payment_mode == "Credit Card":
+        cc_list = get_sorted_cc_list(cursor)
+        credit_card_choice = st.selectbox("Select Credit Card", cc_list)
+        final_payment_mode = f"CC: {credit_card_choice}"
 
     remarks = st.text_area("Remarks (विवरण या नोट)")
     submit_btn = st.form_submit_button("Save Transaction")
@@ -949,7 +984,6 @@ elif choice == "Edit Transaction":
 
     st.info(f"Editing Transaction ID: {r_id} (Date: {r_date})")
 
-    # Added date editing support
     try:
       parsed_existing_date = datetime.strptime(r_date, "%Y-%m-%d").date()
     except:
@@ -964,14 +998,14 @@ elif choice == "Edit Transaction":
         key="edit_type",
     )
 
-    loc_list = ["Patna", "Barhiya", "Lakhisarai", "Others"]
+    loc_list = get_locations_for_type(cursor, new_type)
     try:
       loc_index = loc_list.index(r_location)
     except:
       loc_index = 0
 
     new_location = st.selectbox(
-        "Location", loc_list, index=loc_index, key="edit_loc"
+        "Location / Main Menu", loc_list, index=loc_index, key="edit_loc"
     )
 
     new_sub_cat = st.text_input(
@@ -1362,54 +1396,65 @@ elif choice == "Manage Loans & LIC":
   else:
     st.info("कोई लोन या LIC दर्ज नहीं है।")
 
-# ----------------- 7. MANAGE CATEGORIES (DYNAMIC SUB-CATEGORIES) -----------------
+# ----------------- 7. MANAGE CATEGORIES (DYNAMIC TYPES & SUB-CATEGORIES) -----------------
 elif choice == "Manage Categories":
   st.subheader(
-      "🏷️ लोकेशन और सब-कैटेगरी मैनेजर (Dynamic Sub-Category Manager)"
+      "🏷️ मेनू और सब-कैटेगरी मैनेजर (Dynamic Menu & Sub-Category Manager)"
   )
   st.write(
-      "यहाँ आप Patna, Barhiya, Lakhisarai या Others के अंदर अपनी पसंद की नई"
-      " कैटेगरी या सब-मेनू खुद जोड़ सकते हैं।"
+      "यहाँ आप **Expense** या **Income** दोनों के लिए नए मेनू (Locations/Types)"
+      " और सब-कैटेगरी (Items) खुद जोड़ सकते हैं।"
   )
 
   with st.form("add_cat_form", clear_on_submit=True):
-    sel_loc = st.selectbox(
-        "Select Location", ["Patna", "Barhiya", "Lakhisarai", "Others"]
+    sel_type = st.selectbox(
+        "Select Transaction Type", ["Expense", "Income"]
     )
-    new_sub_name = st.text_input("New Sub-Category / Item Name (जैसे: Grocery, Fuel...)")
-    add_cat_btn = st.form_submit_button("Add Sub-Category")
+    
+    # Dynamic list of locations based on type chosen
+    current_locs = get_locations_for_type(cursor, sel_type)
+    sel_loc = st.selectbox(
+        "Select Main Menu / Location", current_locs
+    )
+    
+    new_sub_name = st.text_input(
+        "New Sub-Category / Item Name (जैसे: Bonus, Fuel, Rent...)"
+    )
+    add_cat_btn = st.form_submit_button("Add Sub-Category / Item")
 
     if add_cat_btn:
       if new_sub_name.strip():
         try:
           cursor.execute(
-              "INSERT INTO custom_subcategories (location, sub_category_name)"
-              " VALUES (?, ?)",
-              (sel_loc, new_sub_name.strip()),
+              "INSERT INTO custom_subcategories (transaction_type, location,"
+              " sub_category_name) VALUES (?, ?, ?)",
+              (sel_type, sel_loc, new_sub_name.strip()),
           )
           conn.commit()
           success_ph = st.empty()
           success_ph.success(
-              f"'{new_sub_name.strip()}' को '{sel_loc}' के अंतर्गत सफलतापूर्वक"
-              " जोड़ दिया गया है!"
+              f"'{new_sub_name.strip()}' को [{sel_type} -> {sel_loc}] के अंतर्गत"
+              " सफलतापूर्वक जोड़ दिया गया है!"
           )
           time.sleep(1.5)
           success_ph.empty()
           st.rerun()
         except:
-          st.error("यह सब-कैटेगरी पहले से इस लोकेशन में मौजूद है!")
+          st.error("यह सब-कैटेगरी पहले से इस मेनू में मौजूद है!")
       else:
         st.error("कृपया सब-कैटेगरी का नाम दर्ज करें!")
 
   cursor.execute(
-      "SELECT id, location, sub_category_name FROM custom_subcategories"
+      "SELECT id, transaction_type, location, sub_category_name FROM"
+      " custom_subcategories"
   )
   cat_records = cursor.fetchall()
 
   if cat_records:
     st.markdown("### 📋 आपके द्वारा जोड़ी गई कस्टम कैटेगरी की सूचियाँ")
     cat_df = pd.DataFrame(
-        cat_records, columns=["ID", "Location", "Sub-Category Name"]
+        cat_records,
+        columns=["ID", "Type", "Main Menu / Location", "Sub-Category Name"],
     )
     st.dataframe(cat_df, use_container_width=True)
 
