@@ -442,9 +442,11 @@ choice = st.sidebar.selectbox("Menu", menu)
 if choice == "Add Transaction":
   st.subheader("📝 नया लेनदेन दर्ज करें (Add New Entry)")
 
+  # Type is kept OUTSIDE the form so changing it instantly refreshes the options
+  t_type = st.selectbox("Type", ["Expense", "Income"])
+
   with st.form("add_trans_form", clear_on_submit=True):
     trans_date = st.date_input("Transaction Date", value=datetime.now().date())
-    t_type = st.selectbox("Type", ["Expense", "Income"])
 
     loc_options = get_locations_for_type(cursor, t_type)
     location = st.selectbox(
