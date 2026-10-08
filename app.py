@@ -88,6 +88,15 @@ def init_db():
         " ''"
     )
 
+  # Check transaction_type in custom_subcategories
+  cursor.execute("PRAGMA table_info(custom_subcategories)")
+  cat_columns = [col[1] for col in cursor.fetchall()]
+  if "transaction_type" not in cat_columns:
+    cursor.execute(
+        "ALTER TABLE custom_subcategories ADD COLUMN transaction_type TEXT"
+        " DEFAULT 'Expense'"
+    )
+
   conn.commit()
   return conn
 
@@ -173,7 +182,6 @@ def get_locations_for_type(cursor, trans_type):
   else:
     base_locs = ["Income Source"]
 
-  # Check custom locations if added
   cursor.execute(
       "SELECT DISTINCT location FROM custom_subcategories WHERE"
       " transaction_type = ?",
@@ -437,13 +445,9 @@ if choice == "Add Transaction":
     t_type = st.selectbox("Type", ["Expense", "Income"])
 
     loc_options = get_locations_for_type(cursor, t_type)
-    location = st.selectbox(
-        "Location / Main Menu", loc_options
-    )
+    location = st.selectbox("Location / Main Menu", loc_options)
 
-    sub_cat_options = get_subcategories_for_location(
-        cursor, t_type, location
-    )
+    sub_cat_options = get_subcategories_for_location(cursor, t_type, location)
     sub_cat = st.selectbox("Sub-Category / Item", sub_cat_options)
 
     manual_cat = ""
@@ -454,7 +458,6 @@ if choice == "Add Transaction":
         "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
     )
 
-    # Check if Income is a Refund from Amazon/Flipkart/Other Online Platforms
     is_cc_refund = False
     if t_type == "Income" and sub_cat in [
         "Refund From Amazon",
@@ -1407,16 +1410,11 @@ elif choice == "Manage Categories":
   )
 
   with st.form("add_cat_form", clear_on_submit=True):
-    sel_type = st.selectbox(
-        "Select Transaction Type", ["Expense", "Income"]
-    )
-    
-    # Dynamic list of locations based on type chosen
+    sel_type = st.selectbox("Select Transaction Type", ["Expense", "Income"])
+
     current_locs = get_locations_for_type(cursor, sel_type)
-    sel_loc = st.selectbox(
-        "Select Main Menu / Location", current_locs
-    )
-    
+    sel_loc = st.selectbox("Select Main Menu / Location", current_locs)
+
     new_sub_name = st.text_input(
         "New Sub-Category / Item Name (जैसे: Bonus, Fuel, Rent...)"
     )
