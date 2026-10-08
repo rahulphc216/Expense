@@ -442,7 +442,6 @@ choice = st.sidebar.selectbox("Menu", menu)
 if choice == "Add Transaction":
   st.subheader("📝 नया लेनदेन दर्ज करें (Add New Entry)")
 
-  # Type is kept OUTSIDE the form so changing it instantly refreshes the options
   t_type = st.selectbox("Type", ["Expense", "Income"])
 
   with st.form("add_trans_form", clear_on_submit=True):
@@ -465,38 +464,14 @@ if choice == "Add Transaction":
         "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
     )
 
-    is_cc_refund = False
-    if t_type == "Income" and sub_cat in [
-        "Refund From Amazon",
-        "Refund From Flipkart",
-        "Refund From Other Online Platform",
-    ]:
-      is_cc_refund = True
+    pay_modes = ["Cash", "Credit Card", "UPI", "Debit Card", "Net Banking", "Other"]
+    base_payment_mode = st.selectbox("Payment Mode", pay_modes)
+    final_payment_mode = base_payment_mode
 
-    if is_cc_refund:
-      st.info(
-          "💡 यह ऑनलाइन रिफंड है। कृपया वह क्रेडिट कार्ड चुनें जिसमें यह राशि"
-          " आई है:"
-      )
+    if base_payment_mode == "Credit Card":
       cc_list = get_sorted_cc_list(cursor)
-      credit_card_choice = st.selectbox("Select Credit Card for Refund", cc_list)
+      credit_card_choice = st.selectbox("Select Credit Card", cc_list)
       final_payment_mode = f"CC: {credit_card_choice}"
-    else:
-      pay_modes = [
-          "Cash",
-          "Credit Card",
-          "UPI",
-          "Debit Card",
-          "Net Banking",
-          "Other",
-      ]
-      base_payment_mode = st.selectbox("Payment Mode", pay_modes)
-      final_payment_mode = base_payment_mode
-
-      if base_payment_mode == "Credit Card":
-        cc_list = get_sorted_cc_list(cursor)
-        credit_card_choice = st.selectbox("Select Credit Card", cc_list)
-        final_payment_mode = f"CC: {credit_card_choice}"
 
     remarks = st.text_area("Remarks (विवरण या नोट)")
     submit_btn = st.form_submit_button("Save Transaction")
