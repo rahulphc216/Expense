@@ -272,14 +272,26 @@ st.write(
     " आय-व्यय का पूरा हिसाब रखें।"
 )
 
-# ----------------- SMART ALERTS WITH AUTO-DETECT FOR CC & LOANS/LIC -----------------
-today = datetime.now()
+# Helper for Indian Standard Time (IST)
+IST_OFFSET = timedelta(hours=5, minutes=30)
+
+
+def get_current_ist_date():
+  return (datetime.utcnow() + IST_OFFSET).date()
+
+
+def get_current_ist_datetime():
+  return datetime.utcnow() + IST_OFFSET
+
+
+today = get_current_ist_datetime()
 current_day = today.day
 current_month = today.month
 current_year = today.year
 current_month_str = today.strftime("%Y-%m")
 current_year_str = str(current_year)
 
+# ----------------- SMART ALERTS WITH AUTO-DETECT FOR CC & LOANS/LIC -----------------
 cursor.execute(
     "SELECT payment_mode FROM transactions WHERE date LIKE ?",
     (f"{current_month_str}%",),
@@ -444,15 +456,7 @@ if choice == "Add Transaction":
 
   t_type = st.selectbox("Type", ["Expense", "Income"])
 
-  # Payment Mode is kept outside form so selecting Credit Card instantly refreshes card list
-  pay_modes = [
-      "Cash",
-      "Credit Card",
-      "UPI",
-      "Debit Card",
-      "Net Banking",
-      "Other",
-  ]
+  pay_modes = ["Cash", "Credit Card", "UPI", "Debit Card", "Net Banking", "Other"]
   base_payment_mode = st.selectbox("Payment Mode", pay_modes)
 
   final_payment_mode = base_payment_mode
@@ -462,7 +466,8 @@ if choice == "Add Transaction":
     final_payment_mode = f"CC: {credit_card_choice}"
 
   with st.form("add_trans_form", clear_on_submit=True):
-    trans_date = st.date_input("Transaction Date", value=datetime.now().date())
+    # Automatically defaults to Indian Standard Time (IST) date
+    trans_date = st.date_input("Transaction Date", value=get_current_ist_date())
 
     loc_options = get_locations_for_type(cursor, t_type)
     location = st.selectbox(
@@ -585,11 +590,12 @@ elif choice == "Reports & Dashboard":
     if filter_pay != "All":
       filtered_df = filtered_df[filtered_df["Payment_Mode"] == filter_pay]
 
-    current_year = datetime.now().year
+    current_year = get_current_ist_date().year
 
     if period == "Monthly":
       selected_month_str = st.text_input(
-          "Enter Month (YYYY-MM)", value=datetime.now().strftime("%Y-%m")
+          "Enter Month (YYYY-MM)",
+          value=get_current_ist_date().strftime("%Y-%m"),
       )
       if selected_month_str:
         filtered_df = filtered_df[
@@ -795,7 +801,7 @@ elif choice == "Detailed Summary (Expense/Income)":
     ]
     selected_period = st.selectbox("Select Period Type", period_options)
 
-    current_date = datetime.now().date()
+    current_date = get_current_ist_date()
     current_year = current_date.year
     filtered_view_df = df[df["Type"] == selected_type].copy()
 
@@ -820,7 +826,7 @@ elif choice == "Detailed Summary (Expense/Income)":
 
     elif selected_period == "Monthly":
       m_str = st.text_input(
-          "Enter Month (YYYY-MM)", value=datetime.now().strftime("%Y-%m")
+          "Enter Month (YYYY-MM)", value=get_current_ist_date().strftime("%Y-%m")
       )
       if m_str:
         filtered_view_df = filtered_view_df[
@@ -980,7 +986,7 @@ elif choice == "Edit Transaction":
     try:
       parsed_existing_date = datetime.strptime(r_date, "%Y-%m-%d").date()
     except:
-      parsed_existing_date = datetime.now().date()
+      parsed_existing_date = get_current_ist_date()
 
     new_date_input = st.date_input("Transaction Date", value=parsed_existing_date)
 
