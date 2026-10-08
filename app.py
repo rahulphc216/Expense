@@ -56,7 +56,7 @@ def init_db():
         )
     """)
 
-  # Custom Sub-Categories table for Locations (Expense & Income)
+  # Custom Sub-Categories table for Locations & Income Sources
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS custom_subcategories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,7 +88,6 @@ def init_db():
         " ''"
     )
 
-  # Check transaction_type in custom_subcategories
   cursor.execute("PRAGMA table_info(custom_subcategories)")
   cat_columns = [col[1] for col in cursor.fetchall()]
   if "transaction_type" not in cat_columns:
@@ -175,7 +174,7 @@ def get_sorted_cc_list(cursor):
   return sorted_list
 
 
-# Helper function to fetch dynamic sub-categories and locations
+# Helper function for dynamic locations/sources
 def get_locations_for_type(cursor, trans_type):
   if trans_type == "Expense":
     base_locs = ["Patna", "Barhiya", "Lakhisarai", "Others"]
@@ -230,16 +229,19 @@ def get_subcategories_for_location(cursor, trans_type, location):
     }
     base_list = defaults.get(location, ["Others"])
   else:
-    base_list = [
-        "Salary",
-        "Refund From Amazon",
-        "Refund From Flipkart",
-        "Refund From Other Online Platform",
-        "Smita G",
-        "Office",
-        "Advocate",
-        "Others",
-    ]
+    defaults_inc = {
+        "Income Source": [
+            "Salary",
+            "Refund From Amazon",
+            "Refund From Flipkart",
+            "Refund From Other Online Platform",
+            "Smita G",
+            "Office",
+            "Advocate",
+            "Others",
+        ]
+    }
+    base_list = defaults_inc.get(location, ["Others"])
 
   cursor.execute(
       "SELECT sub_category_name FROM custom_subcategories WHERE"
@@ -445,7 +447,10 @@ if choice == "Add Transaction":
     t_type = st.selectbox("Type", ["Expense", "Income"])
 
     loc_options = get_locations_for_type(cursor, t_type)
-    location = st.selectbox("Location / Main Menu", loc_options)
+    location = st.selectbox(
+        "Location / Main Menu" if t_type == "Expense" else "Income Source Menu",
+        loc_options,
+    )
 
     sub_cat_options = get_subcategories_for_location(cursor, t_type, location)
     sub_cat = st.selectbox("Sub-Category / Item", sub_cat_options)
