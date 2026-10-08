@@ -444,6 +444,23 @@ if choice == "Add Transaction":
 
   t_type = st.selectbox("Type", ["Expense", "Income"])
 
+  # Payment Mode is kept outside form so selecting Credit Card instantly refreshes card list
+  pay_modes = [
+      "Cash",
+      "Credit Card",
+      "UPI",
+      "Debit Card",
+      "Net Banking",
+      "Other",
+  ]
+  base_payment_mode = st.selectbox("Payment Mode", pay_modes)
+
+  final_payment_mode = base_payment_mode
+  if base_payment_mode == "Credit Card":
+    cc_list = get_sorted_cc_list(cursor)
+    credit_card_choice = st.selectbox("Select Credit Card", cc_list)
+    final_payment_mode = f"CC: {credit_card_choice}"
+
   with st.form("add_trans_form", clear_on_submit=True):
     trans_date = st.date_input("Transaction Date", value=datetime.now().date())
 
@@ -463,15 +480,6 @@ if choice == "Add Transaction":
     amount = st.number_input(
         "Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
     )
-
-    pay_modes = ["Cash", "Credit Card", "UPI", "Debit Card", "Net Banking", "Other"]
-    base_payment_mode = st.selectbox("Payment Mode", pay_modes)
-    final_payment_mode = base_payment_mode
-
-    if base_payment_mode == "Credit Card":
-      cc_list = get_sorted_cc_list(cursor)
-      credit_card_choice = st.selectbox("Select Credit Card", cc_list)
-      final_payment_mode = f"CC: {credit_card_choice}"
 
     remarks = st.text_area("Remarks (विवरण या नोट)")
     submit_btn = st.form_submit_button("Save Transaction")
