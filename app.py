@@ -202,7 +202,6 @@ def get_subcategories_for_location(cursor, location):
 
   base_list = defaults.get(location, ["Others"])
 
-  # Fetch custom added subcategories from DB
   cursor.execute(
       "SELECT sub_category_name FROM custom_subcategories WHERE location = ?",
       (location,),
@@ -210,7 +209,7 @@ def get_subcategories_for_location(cursor, location):
   custom_rows = cursor.fetchall()
   for r in custom_rows:
     if r[0] not in base_list:
-      base_list.insert(-1, r[0])  # insert before 'Others' if possible
+      base_list.insert(-1, r[0])
 
   return base_list
 
@@ -402,6 +401,9 @@ if choice == "Add Transaction":
   st.subheader("📝 नया लेनदेन दर्ज करें (Add New Entry)")
 
   with st.form("add_trans_form", clear_on_submit=True):
+    # Added Date Selection so user can backdate transactions (e.g. forgot yesterday)
+    trans_date = st.date_input("Transaction Date", value=datetime.now().date())
+
     t_type = st.selectbox("Type", ["Expense", "Income"])
 
     location = "Income Source"
@@ -462,7 +464,7 @@ if choice == "Add Transaction":
       elif not final_sub_cat:
         st.error("कृपया कैटेगरी की जानकारी दें!")
       else:
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        date_str = trans_date.strftime("%Y-%m-%d")
         cursor.execute(
             "INSERT INTO transactions (date, type, location, category,"
             " sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?, ?,"
@@ -947,6 +949,14 @@ elif choice == "Edit Transaction":
 
     st.info(f"Editing Transaction ID: {r_id} (Date: {r_date})")
 
+    # Added date editing support
+    try:
+      parsed_existing_date = datetime.strptime(r_date, "%Y-%m-%d").date()
+    except:
+      parsed_existing_date = datetime.now().date()
+
+    new_date_input = st.date_input("Transaction Date", value=parsed_existing_date)
+
     new_type = st.selectbox(
         "Type",
         ["Expense", "Income"],
@@ -1005,11 +1015,13 @@ elif choice == "Edit Transaction":
       elif not new_sub_cat.strip():
         st.error("कृपया कैटेगरी दर्ज करें!")
       else:
+        new_date_str = new_date_input.strftime("%Y-%m-%d")
         cursor.execute(
-            "UPDATE transactions SET type = ?, location = ?, category = ?,"
-            " sub_category = ?, amount = ?, payment_mode = ?, remarks = ? WHERE"
-            " id = ?",
+            "UPDATE transactions SET date = ?, type = ?, location = ?, category"
+            " = ?, sub_category = ?, amount = ?, payment_mode = ?, remarks = ?"
+            " WHERE id = ?",
             (
+                new_date_str,
                 new_type,
                 new_location,
                 new_sub_cat,
@@ -1389,7 +1401,6 @@ elif choice == "Manage Categories":
       else:
         st.error("कृपया सब-कैटेगरी का नाम दर्ज करें!")
 
-  # View and Delete custom categories
   cursor.execute(
       "SELECT id, location, sub_category_name FROM custom_subcategories"
   )
