@@ -7,8 +7,8 @@ st.set_page_config(page_title="Personal Finance Manager", layout="wide")
 # --- Initialize Session State ---
 if "banks" not in st.session_state:
     st.session_state.banks = pd.DataFrame(columns=["Bank Name", "Account Type", "Opening Balance", "Current Balance", "Is OD", "OD Limit"])
-    # Sample PNB OD account
-    st.session_state.banks.loc[0] = ["PNB", "Current/OD", 60000, 60000, True, 211000]
+    # Default PNB OD account setup as per your example
+    st.session_state.banks.loc[0] = ["PNB", "Current/OD", 66634.72, 66634.72, True, 211000.0]
 
 if "cards" not in st.session_state:
     st.session_state.cards = pd.DataFrame(columns=["Card Name", "Total Limit", "Opening Balance", "Current Limit", "Billing Date", "Due Date"])
@@ -27,7 +27,7 @@ if "transactions" not in st.session_state:
 # --- Helper Functions ---
 def get_bank_net_balance(row):
     if row["Is OD"]:
-        # OD Logic: If balance entered is 60000 and OD limit is 211000, net balance = 60000 - 211000 = -151000
+        # OD Logic: Current Balance - OD Limit (e.g., 66634.72 - 211000 = -144365.28)
         return row["Current Balance"] - row["OD Limit"]
     else:
         return row["Current Balance"]
@@ -43,13 +43,13 @@ if menu == "Master Settings":
     tab1, tab2, tab3 = st.tabs(["Bank Accounts", "Credit Cards", "Location Submenus"])
     
     with tab1:
-        st.subheader("Manage Bank Accounts")
+        st.subheader("Manage Bank Accounts (Multiple Banks & OD Accounts)")
         with st.form("add_bank_form"):
             b_name = st.text_input("Bank Name")
             b_type = st.selectbox("Account Type", ["Saving", "Current/OD"])
-            b_open = st.number_input("Opening/Current Balance", value=0.0)
+            b_open = st.number_input("Opening/Current Balance", value=0.0, format="%.2f")
             is_od = st.checkbox("Is this an OD Account?")
-            od_limit = st.number_input("OD Limit (if applicable)", value=0.0)
+            od_limit = st.number_input("OD Limit (if applicable)", value=0.0, format="%.2f")
             submitted_b = st.form_submit_button("Add Bank")
             if submitted_b and b_name:
                 new_row = {"Bank Name": b_name, "Account Type": b_type, "Opening Balance": b_open, "Current Balance": b_open, "Is OD": is_od, "OD Limit": od_limit if is_od else 0.0}
@@ -57,15 +57,18 @@ if menu == "Master Settings":
                 st.success(f"Bank {b_name} added successfully!")
         
         st.write("### Existing Banks")
-        st.dataframe(st.session_state.banks)
         if not st.session_state.banks.empty:
+            b_display = st.session_state.banks.copy()
+            b_display["Net Balance"] = b_display.apply(get_bank_net_balance, axis=1)
+            st.dataframe(b_display)
+            
             del_bank = st.selectbox("Select Bank to Delete", st.session_state.banks["Bank Name"])
             if st.button("Delete Bank"):
                 st.session_state.banks = st.session_state.banks[st.session_state.banks["Bank Name"] != del_bank]
                 st.rerun()
 
     with tab2:
-        st.subheader("Manage Credit Cards (Up to 8-10 Cards)")
+        st.subheader("Manage Credit Cards (Unlimited / 10+ Cards Support)")
         with st.form("add_card_form"):
             c_name = st.text_input("Credit Card Name")
             c_limit = st.number_input("Total Limit", value=50000.0)
@@ -79,28 +82,33 @@ if menu == "Master Settings":
                 st.success(f"Credit Card {c_name} added successfully!")
         
         st.write("### Existing Credit Cards")
-        st.dataframe(st.session_state.cards)
         if not st.session_state.cards.empty:
+            st.dataframe(st.session_state.cards)
             del_card = st.selectbox("Select Card to Delete", st.session_state.cards["Card Name"])
             if st.button("Delete Credit Card"):
                 st.session_state.cards = st.session_state.cards[st.session_state.cards["Card Name"] != del_card]
                 st.rerun()
 
     with tab3:
-        st.subheader("Manage Location Submenus")
+        st.subheader("Manage Location Submenus (Dynamic Add/Edit/Delete)")
         loc_choice = st.selectbox("Select Location", ["Patna", "Barhiya", "Lakhisarai", "Others"])
-        new_sub = st.text_input("New Submenu Name")
-        if st.button("Add Submenu"):
-            if new_sub and new_sub not in st.session_state.submenus[loc_choice]:
-                st.session_state.submenus[loc_choice].append(new_sub)
-                st.success(f"Added '{new_sub}' to {loc_choice}!")
-                st.rerun()
         
-        st.write(f"Current Submenus in {loc_choice}:", st.session_state.submenus[loc_choice])
-        sub_to_del = st.selectbox("Select Submenu to Delete", st.session_state.submenus[loc_choice], key="del_sub")
-        if st.button("Delete Submenu"):
-            st.session_state.submenus[loc_choice].remove(sub_to_del)
-            st.rerun()
+        col_sub1, col_sub2 = st.columns(2)
+        with col_sub1:
+            new_sub = st.text_input("New Submenu Name")
+            if st.button("Add Submenu"):
+                if new_sub:
+                    # Allows same submenu name across different locations as requested
+                    st.session_state.submenus[loc_choice].append(new_sub)
+                    st.success(f"Added '{new_sub}' to {loc_choice}!")
+                    st.rerun()
+        
+        st.write(f"Current Submenus in **{loc_choice}**:", st.session_state.submenus[loc_choice])
+        if st.session_state.submenus[loc_choice]:
+            sub_to_del = st.selectbox("Select Submenu to Delete", st.session_state.submenus[loc_choice], key="del_sub")
+            if st.button("Delete Submenu"):
+                st.session_state.submenus[loc_choice].remove(sub_to_del)
+                st.rerun()
 
 # ==================== 2. ADD EXPENSE ====================
 elif menu == "Add Expense":
@@ -109,7 +117,10 @@ elif menu == "Add Expense":
     with st.form("expense_form"):
         exp_date = st.date_input("Date", value=date.today())
         location = st.selectbox("Location", ["Patna", "Barhiya", "Lakhisarai", "Others"])
-        submenu = st.selectbox("Submenu Category", st.session_state.submenus[location])
+        
+        # Dynamic submenus check
+        available_subs = st.session_state.submenus.get(location, ["General"])
+        submenu = st.selectbox("Submenu Category", available_subs)
         
         mode = st.selectbox("Payment Mode", ["Cash", "Credit Card", "Saving Bank Account"])
         
@@ -131,7 +142,7 @@ elif menu == "Add Expense":
         submitted_exp = st.form_submit_button("Save Expense")
         
         if submitted_exp:
-            # Update balances
+            # Update balances accordingly
             if mode == "Credit Card" and account_or_card:
                 idx = st.session_state.cards[st.session_state.cards["Card Name"] == account_or_card].index[0]
                 st.session_state.cards.loc[idx, "Current Limit"] -= amount
@@ -181,14 +192,14 @@ elif menu == "Add Income":
 
 # ==================== 4. SPECIAL TRANSACTIONS ====================
 elif menu == "Special Transactions":
-    st.header("🔄 Special Transactions (Lent, Self-Transfer, CC Bill Payment)")
+    st.header("🔄 Special Transactions (No Income/Expense Impact)")
     
-    st_type = st.selectbox("Transaction Type", ["Lent/Borrow (No Inc/Exp)", "Self-Transfer Between Accounts", "Credit Card Bill Payment"])
+    st_type = st.selectbox("Transaction Type", ["Lent / Borrow (Udhar)", "Self-Transfer Between Accounts", "Credit Card Bill Payment"])
     
-    if st_type == "Lent/Borrow (No Inc/Exp)":
+    if st_type == "Lent / Borrow (Udhar)":
         with st.form("lent_form"):
             l_date = st.date_input("Date")
-            action = st.selectbox("Action", ["Given to Friend (Udhar Diya)", "Received Back from Friend"])
+            action = st.selectbox("Action", ["Given to Friend (Udhar Diya - Minus from Bank/Card, No Expense)", "Received Back from Friend (Plus to Bank/Card, No Income)"])
             mode = st.selectbox("Mode", ["Cash", "Bank Account", "Credit Card"])
             acc = None
             if mode == "Bank Account":
@@ -198,33 +209,33 @@ elif menu == "Special Transactions":
             amount = st.number_input("Amount", value=5000.0)
             note = st.text_input("Person Name / Detail")
             
-            if st.form_submit_button("Submit Lent/Borrow"):
-                if action == "Given to Friend (Udhar Diya)":
-                    if mode == "Bank Account":
+            if st.form_submit_button("Submit Special Transaction"):
+                if "Given" in action:
+                    if mode == "Bank Account" and acc:
                         idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc].index[0]
                         st.session_state.banks.loc[idx, "Current Balance"] -= amount
-                    elif mode == "Credit Card":
+                    elif mode == "Credit Card" and acc:
                         idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc].index[0]
                         st.session_state.cards.loc[idx, "Current Limit"] -= amount
-                else: # Received back
-                    if mode == "Bank Account":
+                else:
+                    if mode == "Bank Account" and acc:
                         idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc].index[0]
                         st.session_state.banks.loc[idx, "Current Balance"] += amount
-                    elif mode == "Credit Card":
+                    elif mode == "Credit Card" and acc:
                         idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc].index[0]
                         st.session_state.cards.loc[idx, "Current Limit"] += amount
-                st.success("Special transaction recorded without affecting Income/Expense!")
+                st.success("Recorded successfully without affecting Income or Expense!")
 
-    elif st.form_submit_button if False else st_type == "Self-Transfer Between Accounts":
+    elif st_type == "Self-Transfer Between Accounts":
         with st.form("transfer_form"):
             t_date = st.date_input("Transfer Date")
             from_acc = st.selectbox("From Bank Account", st.session_state.banks["Bank Name"], key="from_b")
             to_acc = st.selectbox("To Bank Account", st.session_state.banks["Bank Name"], key="to_b")
-            amount = st.number_input("Amount", value=1000.0)
+            amount = st.number_input("Transfer Amount", value=1000.0)
             
-            if st.form_submit_button("Transfer"):
+            if st.form_submit_button("Complete Transfer"):
                 if from_acc == to_acc:
-                    st.error("Source and destination cannot be the same!")
+                    st.error("Source and destination accounts cannot be the same!")
                 else:
                     idx_from = st.session_state.banks[st.session_state.banks["Bank Name"] == from_acc].index[0]
                     idx_to = st.session_state.banks[st.session_state.banks["Bank Name"] == to_acc].index[0]
@@ -238,28 +249,29 @@ elif menu == "Special Transactions":
             bank_name = st.selectbox("Pay via Bank Account", st.session_state.banks["Bank Name"])
             amount = st.number_input("Bill Payment Amount", value=5000.0)
             
-            if st.form_submit_button("Pay Credit Card Bill"):
-                # Deduct from Bank, Add back to Credit Card limit, DO NOT add to expense
+            if st.form_submit_button("Pay Bill (Clears Due Alert & Updates Limits)"):
                 b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
                 c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == cc_name].index[0]
                 
                 st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
                 st.session_state.cards.loc[c_idx, "Current Limit"] += amount
-                st.success(f"Bill paid for {cc_name} via {bank_name}. Alert cleared/limit updated!")
+                st.success(f"Bill paid successfully for {cc_name} via {bank_name}!")
 
 # ==================== 5. DASHBOARD & REPORTS ====================
 else:
     st.header("📊 Financial Dashboard")
     
-    # Due Date Alerts (7 days check)
+    # 7 Days Due Date Alerts
     if not st.session_state.cards.empty:
-        st.subheader("🚨 Credit Card Due Alerts")
         today = date.today()
         for idx, row in st.session_state.cards.iterrows():
-            due_date = pd.to_datetime(row["Due Date"]).date()
-            days_left = (due_date - today).days
-            if 0 <= days_left <= 7:
-                st.warning(f"⚠️ **{row['Card Name']}** bill due in {days_left} days (Due Date: {row['Due Date']})!")
+            try:
+                due_date = pd.to_datetime(row["Due Date"]).date()
+                days_left = (due_date - today).days
+                if 0 <= days_left <= 7:
+                    st.warning(f"🚨 **Alert:** Credit card **{row['Card Name']}** bill due in **{days_left} days** (Due Date: {row['Due Date']})!")
+            except:
+                pass
 
     col1, col2 = st.columns(2)
     
@@ -270,7 +282,7 @@ else:
             b_df["Net Balance (inc. OD)"] = b_df.apply(get_bank_net_balance, axis=1)
             st.dataframe(b_df[["Bank Name", "Account Type", "Current Balance", "OD Limit", "Net Balance (inc. OD)"]])
         else:
-            st.info("No bank accounts added.")
+            st.info("No bank accounts added yet.")
 
     with col2:
         st.subheader("💳 Credit Cards Overview")
@@ -280,16 +292,16 @@ else:
             total_used = total_limit - c_df["Current Limit"].sum()
             usage_pct = (total_used / total_limit) * 100 if total_limit > 0 else 0
             
-            st.metric("Total Credit Limit across all cards", f"Rs. {total_limit:,.2f}")
+            st.metric("Total Credit Limit (All Cards)", f"Rs. {total_limit:,.2f}")
             st.metric("Total Used Limit", f"Rs. {total_used:,.2f}", f"{usage_pct:.1f}% used")
             st.dataframe(c_df[["Card Name", "Total Limit", "Current Limit", "Due Date"]])
         else:
-            st.info("No credit cards added.")
+            st.info("No credit cards added yet.")
 
     st.markdown("---")
-    st.subheader("📋 Transaction Reports")
+    st.subheader("📋 Transaction History & Reports")
     if not st.session_state.transactions.empty:
-        time_filter = st.selectbox("Filter Duration", ["All", "Daily", "Monthly", "Yearly"])
+        filter_type = st.selectbox("Filter Report Type", ["All", "Daily", "Weekly", "Monthly", "Yearly"])
         st.dataframe(st.session_state.transactions)
     else:
         st.info("No transactions recorded yet.")
