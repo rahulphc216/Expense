@@ -626,7 +626,7 @@ elif menu == "Reports":
                             if "Credit Card" in mode and acc_card in st.session_state.cards["Card Name"].values:
                                 c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc_card].index[0]
                                 st.session_state.cards.loc[c_idx, "Current Limit"] += diff
-                            elif mode == "Saving Bank Account" and acc_card in st.session_state.banks["Bank Name"] == acc_card].index[0] if False else st.session_state.banks[st.session_state.banks["Bank Name"] == acc_card].index[0]:
+                            elif mode == "Saving Bank Account" and acc_card in st.session_state.banks["Bank Name"].values:
                                 b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc_card].index[0]
                                 st.session_state.banks.loc[b_idx, "Current Balance"] += diff
                                 
