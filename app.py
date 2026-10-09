@@ -219,14 +219,10 @@ def get_sorted_bank_list(cursor):
 # Helper function for dynamic payment modes combining Cash, UPI, Net Banking, Cards, and Bank Accounts
 def get_dynamic_payment_modes(cursor):
   base_modes = ["Cash", "UPI", "Debit Card", "Net Banking", "Other"]
-  # Add Credit cards prefixed with CC:
   cc_list = get_sorted_cc_list(cursor)
   cc_modes = [f"CC: {c}" for c in cc_list]
-
-  # Add Bank accounts prefixed with Bank:
   bank_list = get_sorted_bank_list(cursor)
   bank_modes = [f"Bank: {b}" for b in bank_list]
-
   return base_modes + cc_modes + bank_modes
 
 
@@ -234,8 +230,10 @@ def get_dynamic_payment_modes(cursor):
 def get_locations_for_type(cursor, trans_type):
   if trans_type == "Expense":
     base_locs = ["Patna", "Barhiya", "Lakhisarai", "Others"]
-  else:
+  elif trans_type == "Income":
     base_locs = ["Income Source"]
+  else:
+    base_locs = ["Bank Transfer"]
 
   cursor.execute(
       "SELECT DISTINCT location FROM custom_subcategories WHERE"
@@ -261,6 +259,7 @@ def get_subcategories_for_location(cursor, trans_type, location):
             "Self",
             "Room Others",
             "Lagguage",
+            "Lending to Friend / Advance",
             "Others",
         ],
         "Barhiya": [
@@ -284,13 +283,15 @@ def get_subcategories_for_location(cursor, trans_type, location):
         "Others": ["Manual Entry (Others)"],
     }
     base_list = defaults.get(location, ["Others"])
-  else:
+  elif trans_type == "Income":
     defaults_inc = {
         "Income Source": [
             "Salary",
             "Refund From Amazon",
             "Refund From Flipkart",
             "Refund From Other Online Platform",
+            "Loan Recovery / Friend Return",
+            "Non-Income Deposit",
             "Smita G",
             "Office",
             "Advocate",
@@ -298,6 +299,8 @@ def get_subcategories_for_location(cursor, trans_type, location):
         ]
     }
     base_list = defaults_inc.get(location, ["Others"])
+  else:
+    base_list = ["Self Bank Transfer"]
 
   cursor.execute(
       "SELECT sub_category_name FROM custom_subcategories WHERE"
@@ -497,6 +500,7 @@ st.markdown("---")
 
 menu = [
     "Add Transaction",
+    "Self Bank Transfer",
     "Reports & Dashboard",
     "Detailed Summary (Expense/Income)",
     "Edit Transaction",
@@ -514,7 +518,9 @@ if choice == "Add Transaction":
   t_type = st.selectbox("Type", ["Expense", "Income"])
 
   all_pay_modes = get_dynamic_payment_modes(cursor)
-  base_payment_mode = st.selectbox("Payment Mode / Source", all_pay_modes)
+  base_payment_mode = st.selectbox(
+      "Payment Mode / Source Bank", all_pay_modes
+  )
 
   final_payment_mode = base_payment_mode
 
@@ -572,6 +578,92 @@ if choice == "Add Transaction":
         success_ph.empty()
         st.rerun()
 
+# ----------------- 1.1 SELF BANK TRANSFER SECTION -----------------
+elif choice == "Self Bank Transfer":
+  st.subheader("🔄 आपसी बैंक ट्रांसफर (Self Bank Transfer)")
+  st.write(
+      "अपने ही एक बैंक खाते से दूसरे बैंक खाते में पैसे ट्रांसफर करने के लिए"
+      " यहाँ दर्ज करें। इससे दोनों बैंकों का बैलेंस सही अपडेट होगा, लेकिन यह"
+      " आपकी कमाई या खर्च को प्रभावित नहीं करेगा।"
+  )
+
+  bank_list = get_sorted_bank_list(cursor)
+  if len(bank_list) >= 2:
+    with st.form("self_transfer_form", clear_on_submit=True):
+      t_date = st.date_input("Transfer Date", value=get_current_ist_date())
+      from_bank = st.selectbox(
+          "From Bank Account (कहाँ से पैसे कटे - Debit)", bank_list, index=0
+      )
+      to_bank = st.selectbox(
+          "To Bank Account (कहाँ पैसे पहुंचे - Credit)",
+          bank_list,
+          index=1 if len(bank_list) > 1 else 0,
+      )
+      transfer_amt = st.number_input(
+          "Transfer Amount (Rs)", min_value=0.0, format="%.2f", value=0.0
+      )
+      transfer_remarks = st.text_area("Remarks / Note (विवरण)")
+      transfer_btn = st.form_submit_button("Complete Self Transfer")
+
+      if transfer_btn:
+        if from_bank == to_bank:
+          st.error("श्रोत (From) और गंतव्य (To) बैंक खाता एक ही नहीं हो सकता!")
+        elif transfer_amt <= 0:
+          st.error("कृपया सही ट्रांसफर राशि दर्ज करें!")
+        else:
+          date_s = t_date.strftime("%Y-%m-%d")
+          # Record as two linked transactions or a special transfer entry
+          # We record Debit from source bank and Credit to destination bank
+          cursor.execute(
+              "INSERT INTO transactions (date, type, location, category,"
+              " sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?, ?,"
+              " ?, ?, ?, ?)",
+              (
+                  date_s,
+                  "Transfer",
+                  "Bank Transfer",
+                  "Self Transfer Out",
+                  "Self Transfer Out",
+                  transfer_amt,
+                  f"Bank: {from_bank}",
+                  (
+                      f"Transferred to {to_bank}. "
+                      + transfer_remarks
+                  ).strip(),
+              ),
+          )
+          cursor.execute(
+              "INSERT INTO transactions (date, type, location, category,"
+              " sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?, ?,"
+              " ?, ?, ?, ?)",
+              (
+                  date_s,
+                  "Transfer",
+                  "Bank Transfer",
+                  "Self Transfer In",
+                  "Self Transfer In",
+                  transfer_amt,
+                  f"Bank: {to_bank}",
+                  (
+                      f"Received from {from_bank}. "
+                      + transfer_remarks
+                  ).strip(),
+              ),
+          )
+          conn.commit()
+          success_ph = st.empty()
+          success_ph.success(
+              "🎉 आपसी बैंक ट्रांसफर सफलतापूर्वक दर्ज हो गया!"
+          )
+          time.sleep(1.5)
+          success_ph.empty()
+          st.rerun()
+  else:
+    st.warning(
+        "सेल्फ ट्रांसफर के लिए कम से कम 2 बैंक खाते होने आवश्यक हैं। कृपया 'Manage"
+        " Bank Accounts' में जाकर और बैंक जोड़ें।"
+    )
+
 # ----------------- 2. REPORT & DASHBOARD SECTION -----------------
 elif choice == "Reports & Dashboard":
   st.subheader("📊 रिपोर्ट और विस्तृत विश्लेषण (Reports & Dashboard)")
@@ -602,7 +694,9 @@ elif choice == "Reports & Dashboard":
     col_f1, col_f2, col_f3 = st.columns(3)
 
     with col_f1:
-      filter_type = st.selectbox("Filter by Type", ["All", "Expense", "Income"])
+      filter_type = st.selectbox(
+          "Filter by Type", ["All", "Expense", "Income", "Transfer"]
+      )
       period = st.selectbox(
           "Select Time Period",
           [
@@ -838,9 +932,14 @@ elif choice == "Detailed Summary (Expense/Income)":
     df["DateTime"] = pd.to_datetime(df["Date"])
 
     view_type = st.radio(
-        "Select What You Want to View:", ["Expense (खर्च)", "Income (आय)"]
+        "Select What You Want to View:",
+        ["Expense (खर्च)", "Income (आय)", "Transfer (स्थानांतरण)"],
     )
-    selected_type = "Expense" if "Expense" in view_type else "Income"
+    selected_type = (
+        "Expense"
+        if "Expense" in view_type
+        else ("Income" if "Income" in view_type else "Transfer")
+    )
 
     period_options = [
         "Daily",
@@ -1044,8 +1143,12 @@ elif choice == "Edit Transaction":
 
     new_type = st.selectbox(
         "Type",
-        ["Expense", "Income"],
-        index=0 if r_type == "Expense" else 1,
+        ["Expense", "Income", "Transfer"],
+        index=(
+            0
+            if r_type == "Expense"
+            else (1 if r_type == "Income" else 2)
+        ),
         key="edit_type",
     )
 
@@ -1117,7 +1220,7 @@ elif choice == "Edit Transaction":
   else:
     st.warning("दर्ज की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
 
-# ----------------- 5. MANAGE CREDIT CARDS (ADVANCED LEDGER & COLLAPSIBLE SETTINGS) -----------------
+# ----------------- 5. MANAGE CREDIT CARDS SECTION -----------------
 elif choice == "Manage Credit Cards":
   st.subheader(
       "💳 क्रेडिट कार्ड लेजर, लिमिट और स्टेटमेंट मैनेजर (Advanced CC Ledger)"
@@ -1403,7 +1506,6 @@ elif choice == "Manage Credit Cards":
       st.info(f"इस कार्ड से संबंधित इस अवधि में कोई लेनदेन डेटा नहीं मिला है।")
 
     st.markdown("---")
-    # Collapsible Expander for CC Settings / Edit
     with st.expander("⚙️ कार्ड की लिमिट या तारीखें एडिट करें (Click to Open)"):
       selected_card_to_edit = st.selectbox(
           "Choose Card to Modify", card_names_list, key="update_card_meta_sel"
@@ -1484,9 +1586,9 @@ elif choice == "Manage Credit Cards":
 elif choice == "Manage Bank Accounts":
   st.subheader("🏦 सेविंग्स बैंक अकाउंट मैनेजर (Savings Bank Accounts Ledger)")
   st.write(
-      "यहाँ आप अपने सभी बैंक खाते (Savings Bank A/c) जोड़ और मैनेज कर सकते हैं।"
-      " ऐप आपके द्वारा किए गए खर्चों (Debit) या बैंक जमा/रिफंड (Credit) के"
-      " आधार पर हर बैंक का लाइव बैलेंस आटोमेटिक कैलकुलेट करता है।"
+      "यहाँ आप अपने सभी बैंक खाते (Savings Bank A/c) जोड़, एडिट या डिलीट कर"
+      " सकते हैं। ऐप आपके खर्चों (Debit), जमा/रिफंड/इनकम (Credit) और सेल्फ"
+      " ट्रांसफर के आधार पर हर बैंक का लाइव बैलेंस आटोमेटिक कैलकुलेट करता है।"
   )
 
   with st.expander("➕ नया बैंक खाता जोड़ें"):
@@ -1531,7 +1633,7 @@ elif choice == "Manage Bank Accounts":
     grand_bank_balance = 0.0
 
     for b_id, b_name, b_acc, b_opn in bank_records:
-      # Calculate total spent / withdrawn from this bank
+      # Total debits (expenses paid via this bank)
       cursor.execute(
           "SELECT SUM(amount) FROM transactions WHERE payment_mode = ?",
           (f"Bank: {b_name}",),
@@ -1539,7 +1641,7 @@ elif choice == "Manage Bank Accounts":
       spent_res = cursor.fetchone()[0]
       total_spent = spent_res if spent_res else 0.0
 
-      # Calculate total deposited / income credited to this bank
+      # Total credits (income or refunds deposited to this bank)
       cursor.execute(
           "SELECT SUM(amount) FROM transactions WHERE type = 'Income' AND"
           " (sub_category LIKE ? OR remarks LIKE ? OR payment_mode LIKE ?)",
@@ -1548,7 +1650,27 @@ elif choice == "Manage Bank Accounts":
       credit_res = cursor.fetchone()[0]
       total_credited = credit_res if credit_res else 0.0
 
-      current_balance = b_opn + total_credited - total_spent
+      # Self transfers out (Debit)
+      cursor.execute(
+          "SELECT SUM(amount) FROM transactions WHERE type = 'Transfer' AND"
+          " payment_mode = ? AND sub_category = 'Self Transfer Out'",
+          (f"Bank: {b_name}",),
+      )
+      tr_out_res = cursor.fetchone()[0]
+      total_tr_out = tr_out_res if tr_out_res else 0.0
+
+      # Self transfers in (Credit)
+      cursor.execute(
+          "SELECT SUM(amount) FROM transactions WHERE type = 'Transfer' AND"
+          " payment_mode = ? AND sub_category = 'Self Transfer In'",
+          (f"Bank: {b_name}",),
+      )
+      tr_in_res = cursor.fetchone()[0]
+      total_tr_in = tr_in_res if tr_in_res else 0.0
+
+      current_balance = (
+          b_opn + total_credited + total_tr_in - total_spent - total_tr_out
+      )
       grand_bank_balance += current_balance
 
       bank_summary_list.append({
@@ -1556,13 +1678,16 @@ elif choice == "Manage Bank Accounts":
           "Bank Name": b_name,
           "Account Details": b_acc,
           "Opening Balance (Rs)": b_opn,
-          "Total Credited (Rs)": total_credited,
-          "Total Debited (Rs)": total_spent,
+          "Total In (Credit/Transfer)": total_credited + total_tr_in,
+          "Total Out (Debit/Transfer)": total_spent + total_tr_out,
           "Current Balance (Rs)": current_balance,
       })
 
-    st.markdown("### 🌐 सभी बैंक खातों का कुल सारांश (Master Summary)")
-    st.metric("Total Bank Balance Across All Accounts", f"Rs {grand_bank_balance:,.2f}")
+    st.markdown("### 🌐 सभी बैंक खातों का कुल सारांश (Master Consolidated Summary)")
+    st.metric(
+        "Total Bank Balance Across All Accounts",
+        f"Rs {grand_bank_balance:,.2f}",
+    )
 
     st.markdown("---")
     st.markdown("### 📋 बैंक खातों की सूची और लाइव बैलेंस")
@@ -1582,24 +1707,24 @@ elif choice == "Manage Bank Accounts":
     )
     b_opn_val = cursor.fetchone()[0]
 
-    # Fetch debits for this bank
+    # Fetch all transactions associated with this bank (payment_mode matches Bank: name)
     cursor.execute(
         "SELECT id, date, type, location, sub_category, amount, remarks FROM"
         " transactions WHERE payment_mode = ? ORDER BY date DESC",
         (f"Bank: {selected_bank_stmt}",),
     )
-    b_debits = cursor.fetchall()
+    b_trans = cursor.fetchall()
 
-    # Fetch credits for this bank
+    # Also fetch income credits mentioning this bank
     cursor.execute(
         "SELECT id, date, type, location, sub_category, amount, remarks FROM"
         " transactions WHERE type = 'Income' AND (sub_category LIKE ? OR"
         " remarks LIKE ?) ORDER BY date DESC",
         (f"%{selected_bank_stmt}%", f"%{selected_bank_stmt}%"),
     )
-    b_credits = cursor.fetchall()
+    b_inc_credits = cursor.fetchall()
 
-    all_b_rows = b_debits + b_credits
+    all_b_rows = b_trans + b_inc_credits
     if all_b_rows:
       unique_b_rows = {r[0]: r for r in all_b_rows}.values()
       b_df = pd.DataFrame(
@@ -1616,13 +1741,26 @@ elif choice == "Manage Bank Accounts":
       )
       b_df["DateTime"] = pd.to_datetime(b_df["Date"])
 
-      b_cred_tot = b_df[b_df["Type"] == "Income"]["Amount"].sum()
-      b_deb_tot = b_df[b_df["Type"] == "Expense"]["Amount"].sum()
+      # Calculate live balance for this specific bank
+      # Credits: Income type or Transfer 'Self Transfer In'
+      b_cred_tot = b_df[
+          (b_df["Type"] == "Income")
+          | (b_df["Sub-Category"] == "Self Transfer In")
+      ]["Amount"].sum()
+      # Debits: Expense type or Transfer 'Self Transfer Out'
+      b_deb_tot = b_df[
+          (b_df["Type"] == "Expense")
+          | (b_df["Sub-Category"] == "Self Transfer Out")
+      ]["Amount"].sum()
+
       b_live_bal = b_opn_val + b_cred_tot - b_deb_tot
 
       col_bk1, col_bk2, col_bk3 = st.columns(3)
       col_bk1.metric("Opening Balance", f"Rs {b_opn_val:,.2f}")
-      col_bk2.metric("Total Transactions", f"Rs {b_deb_tot + b_cred_tot:,.2f}")
+      col_bk2.metric(
+          "Total Money In / Out",
+          f"In: {b_cred_tot:,.2f} | Out: {b_deb_tot:,.2f}",
+      )
       col_bk3.metric("Current Balance", f"Rs {b_live_bal:,.2f}")
 
       disp_bank_df = b_df[
@@ -1632,21 +1770,21 @@ elif choice == "Manage Bank Accounts":
     else:
       col_bk1, col_bk2, col_bk3 = st.columns(3)
       col_bk1.metric("Opening Balance", f"Rs {b_opn_val:,.2f}")
-      col_bk2.metric("Total Transactions", "Rs 0.00")
+      col_bk2.metric("Total Money In / Out", "In: 0.00 | Out: 0.00")
       col_bk3.metric("Current Balance", f"Rs {b_opn_val:,.2f}")
       st.info("इस बैंक खाते से संबंधित कोई लेनदेन डेटा नहीं मिला है।")
 
     st.markdown("---")
-    with st.expander("⚙️ बैंक खाते का नाम या ओपनिंग बैलेंस एडिट करें"):
+    with st.expander("⚙️ बैंक खाता संपादित करें या डिलीट करें"):
       selected_bank_to_edit = st.selectbox(
-          "Choose Bank to Modify", bank_names_list, key="edit_bank_sel"
+          "Choose Bank to Modify / Delete", bank_names_list, key="edit_bank_sel"
       )
       cursor.execute(
-          "SELECT account_number, opening_balance FROM bank_accounts WHERE"
+          "SELECT id, account_number, opening_balance FROM bank_accounts WHERE"
           " bank_name = ?",
           (selected_bank_to_edit,),
       )
-      curr_acc, curr_b_opn = cursor.fetchone()
+      b_id_val, curr_acc, curr_b_opn = cursor.fetchone()
 
       with st.form("update_bank_form", clear_on_submit=True):
         up_acc_num = st.text_input("Account Number", value=str(curr_acc))
@@ -1670,8 +1808,19 @@ elif choice == "Manage Bank Accounts":
           time.sleep(1.5)
           success_ph.empty()
           st.rerun()
+
+      if st.button("🗑️ Delete Selected Bank Account", key="del_bank_btn"):
+        cursor.execute("DELETE FROM bank_accounts WHERE id = ?", (b_id_val,))
+        conn.commit()
+        success_ph = st.empty()
+        success_ph.success(
+            f"बैंक खाता '{selected_bank_to_edit}' सफलतापूर्वक हटा दिया गया!"
+        )
+        time.sleep(1.5)
+        success_ph.empty()
+        st.rerun()
   else:
-    st.info("कोई बैंक खाता दर्ज नहीं है।")
+    st.info("कोई बैंक खाता दर्ज नहीं है। कृपया नया बैंक खाता जोड़ें।")
 
 # ----------------- 7. MANAGE LOANS & LIC (RECURRING PAYMENTS) -----------------
 elif choice == "Manage Loans & LIC":
@@ -1936,7 +2085,7 @@ elif choice == "Manage Categories":
             "DELETE FROM custom_subcategories WHERE id = ?", (del_cat_id,)
         )
         conn.commit()
-        success_ph = st.empty()
+        success_ph.empty()
         success_ph.success(f"ID {del_cat_id} सफलतापूर्वक हटा दिया गया!")
         time.sleep(1.5)
         success_ph.empty()
