@@ -134,7 +134,7 @@ if menu == "Add Expense":
 
 # ==================== 2. DASHBOARD ====================
 elif menu == "Dashboard":
-    st.header("📊 Financial Dashboard")
+    st.header("📊 Financial Dashboard & Summary")
     
     current_day = current_ist_date.day
     current_month = current_ist_date.month
@@ -170,19 +170,24 @@ elif menu == "Dashboard":
             except:
                 pass
 
-    # Credit Card Summary
-    if not st.session_state.cards.empty and "Total Limit" in st.session_state.cards.columns:
-        st.subheader("💳 All Credit Cards Combined Summary")
-        c_df = st.session_state.cards.copy()
-        total_limit_all = c_df["Total Limit"].sum()
-        total_used_all = total_limit_all - c_df["Current Limit"].sum()
-        overall_usage_pct = (total_used_all / total_limit_all) * 100 if total_limit_all > 0 else 0
+    # Quick Summary Metrics
+    st.subheader("📌 Overall Financial Summary")
+    col_s1, col_s2, col_s3 = st.columns(3)
+    
+    total_bank_bal = 0
+    if not st.session_state.banks.empty:
+        total_bank_bal = st.session_state.banks.apply(get_bank_net_balance, axis=1).sum()
         
-        col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric("Combined Total Limit", f"Rs. {total_limit_all:,.2f}")
-        col_m2.metric("Combined Total Used", f"Rs. {total_used_all:,.2f}")
-        col_m3.metric("Overall Usage Percentage", f"{overall_usage_pct:.1f}%")
-        st.markdown("---")
+    total_cc_used = 0
+    total_cc_limit = 0
+    if not st.session_state.cards.empty:
+        total_cc_limit = st.session_state.cards["Total Limit"].sum()
+        total_cc_used = total_cc_limit - st.session_state.cards["Current Limit"].sum()
+
+    col_s1.metric("Consolidated Bank Balance", f"Rs. {total_bank_bal:,.2f}")
+    col_s2.metric("Total Credit Limit Used", f"Rs. {total_cc_used:,.2f}")
+    col_s3.metric("Combined Credit Limit", f"Rs. {total_cc_limit:,.2f}")
+    st.markdown("---")
 
     col1, col2 = st.columns(2)
     
@@ -191,8 +196,6 @@ elif menu == "Dashboard":
         if not st.session_state.banks.empty:
             b_df = st.session_state.banks.copy()
             b_df["Net Balance (inc. OD)"] = b_df.apply(get_bank_net_balance, axis=1)
-            consolidated_bank_bal = b_df["Net Balance (inc. OD)"].sum()
-            st.metric("Consolidated Net Bank Balance", f"Rs. {consolidated_bank_bal:,.2f}")
             st.dataframe(b_df[["Bank Name", "Account Type", "Current Balance", "OD Limit", "Net Balance (inc. OD)"]])
         else:
             st.info("No bank accounts added yet.")
@@ -410,19 +413,36 @@ elif menu == "Special Transactions":
     st_type = st.selectbox("Transaction Type", ["Lent / Borrow (Udhar)", "Self-Transfer Between Accounts", "Credit Card Bill Payment", "LIC / Loan Installment Payment"])
     
     if st_type == "Lent / Borrow (Udhar)":
-        with st.form("lent_form"):
-            l_date = st.date_input("Date", value=current_ist_date)
-            action = st.selectbox("Action", ["Given to Friend (Udhar Diya)", "Received Back from Friend"])
-            mode = st.selectbox("Mode", ["Cash", "Bank Account", "Credit Card"])
-            acc = None
-            if mode == "Bank Account":
-                acc = st.selectbox("Bank", st.session_state.banks["Bank Name"])
-            elif mode == "Credit Card":
-                acc = st.selectbox("Card", st.session_state.cards["Card Name"])
-            amount = st.number_input("Amount", value=5000.0)
-            note = st.text_input("Person Name / Detail")
-            
-            if st.form_submit_button("Submit Special Transaction"):
+        st.subheader("🤝 Lent / Borrow (Udhar)")
+        l_date = st.date_input("Date", value=current_ist_date, key="l_date_in")
+        action = st.selectbox("Action", ["Given to Friend (Udhar Diya)", "Received Back from Friend"], key="l_action_in")
+        mode = st.selectbox("Mode", ["Cash", "Bank Account", "Credit Card"], key="l_mode_in")
+        
+        acc = None
+        if mode == "Bank Account":
+            if not st.session_state.banks.empty:
+                acc = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="l_bank_in")
+            else:
+                st.warning("Please add a bank account first in Master Settings.")
+        elif mode == "Credit Card":
+            if not st.session_state.cards.empty:
+                acc = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="l_card_in")
+            else:
+                st.warning("Please add a credit card first in Master Settings.")
+                
+        amount = st.number_input("Amount", value=5000.0, key="l_amt_in")
+        note = st.text_input("Person Name / Detail", key="l_note_in")
+        
+        if st.button("Submit Special Transaction"):
+            can_proceed = True
+            if mode == "Bank Account" and not acc:
+                can_proceed = False
+                st.error("Please select a valid Bank Account.")
+            elif mode == "Credit Card" and not acc:
+                can_proceed = False
+                st.error("Please select a valid Credit Card.")
+                
+            if can_proceed:
                 if "Given" in action:
                     if mode == "Bank Account" and acc:
                         idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc].index[0]
@@ -442,31 +462,32 @@ elif menu == "Special Transactions":
                 st.balloons()
 
     elif st_type == "Self-Transfer Between Accounts":
-        with st.form("transfer_form"):
-            t_date = st.date_input("Transfer Date", value=current_ist_date)
-            from_acc = st.selectbox("From Bank Account", st.session_state.banks["Bank Name"], key="from_b")
-            to_acc = st.selectbox("To Bank Account", st.session_state.banks["Bank Name"], key="to_b")
-            amount = st.number_input("Transfer Amount", value=1000.0)
-            
-            if st.form_submit_button("Complete Transfer"):
-                if from_acc == to_acc:
-                    st.error("Source and destination accounts cannot be the same!")
-                else:
-                    idx_from = st.session_state.banks[st.session_state.banks["Bank Name"] == from_acc].index[0]
-                    idx_to = st.session_state.banks[st.session_state.banks["Bank Name"] == to_acc].index[0]
-                    st.session_state.banks.loc[idx_from, "Current Balance"] -= amount
-                    st.session_state.banks.loc[idx_to, "Current Balance"] += amount
-                    save_data()
-                    st.success("✅ Self-transfer completed successfully!")
-                    st.balloons()
+        st.subheader("🔄 Self-Transfer Between Bank Accounts")
+        t_date = st.date_input("Transfer Date", value=current_ist_date, key="t_date_in")
+        from_acc = st.selectbox("From Bank Account", st.session_state.banks["Bank Name"], key="from_b")
+        to_acc = st.selectbox("To Bank Account", st.session_state.banks["Bank Name"], key="to_b")
+        amount = st.number_input("Transfer Amount", value=1000.0, key="t_amt_in")
+        
+        if st.button("Complete Transfer"):
+            if from_acc == to_acc:
+                st.error("Source and destination accounts cannot be the same!")
+            else:
+                idx_from = st.session_state.banks[st.session_state.banks["Bank Name"] == from_acc].index[0]
+                idx_to = st.session_state.banks[st.session_state.banks["Bank Name"] == to_acc].index[0]
+                st.session_state.banks.loc[idx_from, "Current Balance"] -= amount
+                st.session_state.banks.loc[idx_to, "Current Balance"] += amount
+                save_data()
+                st.success("✅ Self-transfer completed successfully!")
+                st.balloons()
 
     elif st_type == "Credit Card Bill Payment":
-        with st.form("cc_bill_form"):
-            cc_name = st.selectbox("Select Credit Card to Pay", st.session_state.cards["Card Name"])
-            bank_name = st.selectbox("Pay via Bank Account", st.session_state.banks["Bank Name"])
-            amount = st.number_input("Bill Payment Amount", value=5000.0)
+        st.subheader("💳 Credit Card Bill Payment")
+        if not st.session_state.cards.empty and not st.session_state.banks.empty:
+            cc_name = st.selectbox("Select Credit Card to Pay", st.session_state.cards["Card Name"], key="cc_pay_sel")
+            bank_name = st.selectbox("Pay via Bank Account", st.session_state.banks["Bank Name"], key="cc_bank_sel")
+            amount = st.number_input("Bill Payment Amount", value=5000.0, key="cc_amt_pay")
             
-            if st.form_submit_button("Pay Bill (Clears Alert & Restores Limit)"):
+            if st.button("Pay Bill (Clears Alert & Restores Limit)"):
                 b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
                 c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == cc_name].index[0]
                 
@@ -475,22 +496,24 @@ elif menu == "Special Transactions":
                 save_data()
                 st.success(f"✅ Bill paid successfully for {cc_name} via {bank_name}!")
                 st.balloons()
+        else:
+            st.warning("Please add at least one Bank Account and one Credit Card in Master Settings first.")
 
     elif st_type == "LIC / Loan Installment Payment":
-        with st.form("lic_pay_form"):
-            if not st.session_state.lic_loans.empty:
-                ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"])
-                bank_name = st.selectbox("Pay via Bank Account", st.session_state.banks["Bank Name"])
-                amount = st.number_input("Installment Amount Paid", value=5000.0)
-                
-                if st.form_submit_button("Pay Installment (Clears Alert)"):
-                    b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
-                    st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
-                    save_data()
-                    st.success(f"✅ Installment paid for {ll_item} via {bank_name}!")
-                    st.balloons()
-            else:
-                st.warning("No LIC or Loan added yet in Master Settings.")
+        st.subheader("📑 LIC / Loan Installment Payment")
+        if not st.session_state.lic_loans.empty and not st.session_state.banks.empty:
+            ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"], key="ll_pay_sel")
+            bank_name = st.selectbox("Pay via Bank Account", st.session_state.banks["Bank Name"], key="ll_bank_sel")
+            amount = st.number_input("Installment Amount Paid", value=5000.0, key="ll_amt_pay")
+            
+            if st.button("Pay Installment (Clears Alert)"):
+                b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
+                st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
+                save_data()
+                st.success(f"✅ Installment paid for {ll_item} via {bank_name}!")
+                st.balloons()
+        else:
+            st.warning("Please add Bank Accounts and LIC/Loans in Master Settings first.")
 
 # ==================== 6. REPORTS & TRANSACTION MANAGEMENT ====================
 elif menu == "Reports":
