@@ -1738,29 +1738,37 @@ elif choice == "Manage Bank Accounts":
     bank_summary_list = []
     grand_bank_balance = 0.0
 
-    for b_id, b_name, b_acc, b_opn, b_is_od, b_od_lim in bank_records:
-      cursor.execute("SELECT SUM(amount) FROM transactions WHERE payment_mode = ?", (f"Bank: {b_name}",))
-      spent_res = cursor.fetchone()[0]
-      total_spent = spent_res if spent_res else 0.0
+        for b_id, b_name, b_acc, b_opn, b_is_od, b_od_lim in bank_records:
+      # कुल क्रेडिट (Income या Self Transfer In या Credit Card Bill Payment In)
+      cursor.execute(
+          "SELECT SUM(amount) FROM transactions WHERE payment_mode = ? AND"
+          " (type = 'Income' OR category = 'Self Transfer In' OR category ="
+          " 'Credit Card Bill Payment In')",
+          (f"Bank: {b_name}",),
+      )
+      cred_res = cursor.fetchone()[0]
+      total_credited = cred_res if cred_res else 0.0
 
-      cursor.execute("SELECT SUM(amount) FROM transactions WHERE type = 'Income' AND (sub_category LIKE ? OR remarks LIKE ? OR payment_mode LIKE ?)", (f"%{b_name}%", f"%{b_name}%", f"%Bank: {b_name}%"))
-      credit_res = cursor.fetchone()[0]
-      total_credited = credit_res if credit_res else 0.0
+      # कुल डेबिट (Expense या Self Transfer Out या CC Bill Payment Out)
+      cursor.execute(
+          "SELECT SUM(amount) FROM transactions WHERE payment_mode = ? AND"
+          " (type = 'Expense' OR category = 'Self Transfer Out' OR category ="
+          " 'CC Bill Payment Out')",
+          (f"Bank: {b_name}",),
+      )
+      deb_res = cursor.fetchone()[0]
+      total_spent = deb_res if deb_res else 0.0
 
-      cursor.execute("SELECT SUM(amount) FROM transactions WHERE type = 'Transfer' AND payment_mode = ? AND sub_category = 'Self Transfer Out'", (f"Bank: {b_name}",))
-      tr_out_res = cursor.fetchone()[0]
-      total_tr_out = tr_out_res if tr_out_res else 0.0
-
-      cursor.execute("SELECT SUM(amount) FROM transactions WHERE type = 'Transfer' AND payment_mode = ? AND sub_category = 'Self Transfer In'", (f"Bank: {b_name}",))
-      tr_in_res = cursor.fetchone()[0]
-      total_tr_in = tr_in_res if tr_in_res else 0.0
-
-      current_balance = b_opn + total_credited + total_tr_in - total_spent - total_tr_out
+      # सही करंट बैलेंस (Opening + In - Out)
+      current_balance = b_opn + total_credited - total_spent
 
       if b_is_od == 1:
         used_od_amt = b_od_lim - current_balance
-        net_contribution = -used_od_amt 
-        display_bal_str = f"Avail: Rs {current_balance:,.2f} | Used OD (Negative): -Rs {used_od_amt:,.2f}"
+        net_contribution = -used_od_amt
+        display_bal_str = (
+            f"Avail: Rs {current_balance:,.2f} | Used OD (Negative): -Rs"
+            f" {used_od_amt:,.2f}"
+        )
         grand_bank_balance += net_contribution
       else:
         display_bal_str = f"Rs {current_balance:,.2f}"
