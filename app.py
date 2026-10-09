@@ -7,7 +7,7 @@ st.set_page_config(page_title="Personal Finance Manager", layout="wide")
 # --- Accurate IST Date Setup ---
 current_ist_date = (datetime.utcnow() + timedelta(hours=5, minutes=30)).date()
 
-# --- Initialize Session State (Persistent check) ---
+# --- Initialize Session State (Permanent Storage Check) ---
 if "banks" not in st.session_state:
     st.session_state.banks = pd.DataFrame(columns=["Bank Name", "Account Type", "Opening Balance", "Current Balance", "Is OD", "OD Limit"])
     st.session_state.banks.loc[0] = ["PNB", "Current/OD", 66634.72, 66634.72, True, 211000.0]
@@ -18,13 +18,17 @@ if "cards" not in st.session_state:
 if "lic_loans" not in st.session_state:
     st.session_state.lic_loans = pd.DataFrame(columns=["Name / Policy No", "Type", "Total Amount / Sum Assured", "Due Date", "Installment / Premium"])
 
-if "submenus" not in st.session_state:
-    st.session_state.submenus = {
-        "Patna": ["Rent", "Office"],
-        "Barhiya": ["Vegetable", "Fruit"],
-        "Lakhisarai": ["General"],
-        "Others": ["Misc"]
-    }
+# Permanent Submenus DataFrame to prevent reset on refresh
+if "submenus_df" not in st.session_state:
+    initial_subs = [
+        {"Location": "Patna", "Submenu": "Rent"},
+        {"Location": "Patna", "Submenu": "Office"},
+        {"Location": "Barhiya", "Submenu": "Vegetable"},
+        {"Location": "Barhiya", "Submenu": "Fruit"},
+        {"Location": "Lakhisarai", "Submenu": "General"},
+        {"Location": "Others", "Submenu": "Misc"}
+    ]
+    st.session_state.submenus_df = pd.DataFrame(initial_subs)
 
 if "transactions" not in st.session_state:
     st.session_state.transactions = pd.DataFrame(columns=["Date", "Type", "Location", "Submenu", "Mode", "Account/Card", "Amount", "Note"])
@@ -36,18 +40,22 @@ def get_bank_net_balance(row):
     else:
         return row["Current Balance"]
 
+def get_submenus_for_location(loc):
+    subs = st.session_state.submenus_df[st.session_state.submenus_df["Location"] == loc]["Submenu"].tolist()
+    return subs if subs else ["General"]
+
 # --- Sidebar Navigation (Default to Add Expense) ---
 st.sidebar.title("Finance Manager")
 menu = st.sidebar.selectbox("Navigation", ["Add Expense", "Dashboard", "Master Settings", "Add Income", "Special Transactions", "Reports"])
 
-# ==================== 1. ADD EXPENSE (Dynamic UI without Form) ====================
+# ==================== 1. ADD EXPENSE ====================
 if menu == "Add Expense":
     st.header("📉 Add Expense")
     
     exp_date = st.date_input("Date", value=current_ist_date, key="exp_date_input")
     location = st.selectbox("Location", ["Patna", "Barhiya", "Lakhisarai", "Others"], key="exp_loc_input")
     
-    available_subs = st.session_state.submenus.get(location, ["General"])
+    available_subs = get_submenus_for_location(location)
     submenu = st.selectbox("Submenu Category", available_subs, key="exp_sub_input")
     
     mode = st.selectbox("Payment Mode", ["Cash", "Credit Card", "Saving Bank Account"], key="exp_mode_input")
@@ -251,21 +259,26 @@ elif menu == "Master Settings":
                 new_sub = st.text_input("New Submenu Name")
                 submitted_sub = st.form_submit_button("Save Submenu")
                 if submitted_sub and new_sub:
-                    if new_sub not in st.session_state.submenus[loc_choice]:
-                        st.session_state.submenus[loc_choice].append(new_sub)
+                    existing_subs = st.session_state.submenus_df[st.session_state.submenus_df["Location"] == loc_choice]["Submenu"].values
+                    if new_sub not in existing_subs:
+                        new_sub_row = {"Location": loc_choice, "Submenu": new_sub}
+                        st.session_state.submenus_df = pd.concat([st.session_state.submenus_df, pd.DataFrame([new_sub_row])], ignore_index=True)
                         st.success(f"Added '{new_sub}' to {loc_choice}!")
                         st.rerun()
                     else:
                         st.warning("Submenu already exists in this location!")
         
-        st.write(f"Current Submenus in **{loc_choice}**:", st.session_state.submenus[loc_choice])
-        if st.session_state.submenus[loc_choice]:
-            sub_to_del = st.selectbox("Select Submenu to Delete", st.session_state.submenus[loc_choice], key="del_sub")
+        current_subs = get_submenus_for_location(loc_choice)
+        st.write(f"Current Submenus in **{loc_choice}**:", current_subs)
+        if current_subs:
+            sub_to_del = st.selectbox("Select Submenu to Delete", current_subs, key="del_sub")
             if st.button("Delete Submenu"):
-                st.session_state.submenus[loc_choice].remove(sub_to_del)
+                st.session_state.submenus_df = st.session_state.submenus_df[
+                    ~((st.session_state.submenus_df["Location"] == loc_choice) & (st.session_state.submenus_df["Submenu"] == sub_to_del))
+                ]
                 st.rerun()
 
-# ==================== 4. ADD INCOME (Dynamic UI without Form) ====================
+# ==================== 4. ADD INCOME ====================
 elif menu == "Add Income":
     st.header("📈 Add Income")
     
