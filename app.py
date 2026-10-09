@@ -43,13 +43,15 @@ def init_db():
         )
     """)
 
-  # Savings Bank Accounts Management table
+  # Savings Bank Accounts Management table with Overdraft Support
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS bank_accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             bank_name TEXT UNIQUE,
             account_number TEXT,
-            opening_balance REAL DEFAULT 0.0
+            opening_balance REAL DEFAULT 0.0,
+            is_od INTEGER DEFAULT 0,
+            od_limit REAL DEFAULT 0.0
         )
     """)
 
@@ -98,6 +100,17 @@ def init_db():
   if "opening_balance" not in cc_columns:
     cursor.execute(
         "ALTER TABLE credit_cards ADD COLUMN opening_balance REAL DEFAULT 0.0"
+    )
+
+  cursor.execute("PRAGMA table_info(bank_accounts)")
+  bank_cols = [col[1] for col in cursor.fetchall()]
+  if "is_od" not in bank_cols:
+    cursor.execute(
+        "ALTER TABLE bank_accounts ADD COLUMN is_od INTEGER DEFAULT 0"
+    )
+  if "od_limit" not in bank_cols:
+    cursor.execute(
+        "ALTER TABLE bank_accounts ADD COLUMN od_limit REAL DEFAULT 0.0"
     )
 
   cursor.execute("PRAGMA table_info(recurring_payments)")
@@ -156,16 +169,17 @@ if cursor.fetchone()[0] == 0:
   )
   conn.commit()
 
-# Pre-populate default savings bank accounts if table is empty
+# Pre-populate default savings/OD bank accounts if table is empty
 cursor.execute("SELECT COUNT(*) FROM bank_accounts")
 if cursor.fetchone()[0] == 0:
   initial_banks = [
-      ("SBI Salary A/c", "XXXX1234", 25000.0),
-      ("HDFC Savings A/c", "XXXX5678", 10000.0),
+      ("PNB OD A/c", "XXXX9999", 66634.72, 1, 211000.0),
+      ("SBI Salary A/c", "XXXX1234", 25000.0, 0, 0.0),
+      ("HDFC Savings A/c", "XXXX5678", 10000.0, 0, 0.0),
   ]
   cursor.executemany(
       "INSERT OR IGNORE INTO bank_accounts (bank_name, account_number,"
-      " opening_balance) VALUES (?, ?, ?)",
+      " opening_balance, is_od, od_limit) VALUES (?, ?, ?, ?, ?)",
       initial_banks,
   )
   conn.commit()
@@ -507,7 +521,6 @@ if choice == "Add Transaction":
 
   t_type = st.selectbox("Type", ["Expense", "Income"])
 
-  # Structured Payment Mode Selection (General Category -> Specific Card/Bank)
   base_pay_category = st.selectbox(
       "Payment Mode / Source Category",
       ["Cash", "Savings Bank Account", "Credit Card", "UPI", "Net Banking", "Debit Card", "Other"]
@@ -1254,7 +1267,6 @@ elif choice == "Manage Credit Cards":
   st.write(
       "यहाँ आप सभी क्रेडिट कार्ड्स की **Dynamic Total Limit**, **Opening"
       " Balance (पुराना बकाया)** और **Billing/Due Dates** मैनेज कर सकते हैं।"
-      " साथ ही मास्टर ओवरव्यू और व्यक्तिगत स्टेटमेंट देख सकते हैं।"
   )
 
   with st.expander("➕ नया क्रेडिट कार्ड जोड़ें"):
@@ -1307,7 +1319,6 @@ elif choice == "Manage Credit Cards":
         else:
           st.error("कृपया कार्ड का नाम दर्ज करें!")
 
-  # Fetch all credit cards data
   cursor.execute(
       "SELECT id, card_name, billing_date, due_date, total_limit,"
       " opening_balance, last_paid_month FROM credit_cards"
@@ -1608,34 +1619,47 @@ elif choice == "Manage Credit Cards":
   else:
     st.info("कोई क्रेडिट कार्ड दर्ज नहीं है।")
 
-# ----------------- 6. MANAGE SAVINGS BANK ACCOUNTS -----------------
+# ----------------- 6. MANAGE SAVINGS BANK ACCOUNTS (WITH PNB OD SUPPORT) -----------------
 elif choice == "Manage Bank Accounts":
-  st.subheader("🏦 सेविंग्स बैंक अकाउंट मैनेजर (Savings Bank Accounts Ledger)")
+  st.subheader("🏦 सेविंग्स बैंक अकाउंट और PNB OD मैनेजर (Bank & OD Ledger)")
   st.write(
-      "यहाँ आप अपने सभी बैंक खाते (Savings Bank A/c) जोड़, एडिट या डिलीट कर"
-      " सकते हैं। ऐप आपके खर्चों (Debit), जमा/रिफंड/इनकम (Credit) और सेल्फ"
-      " ट्रांसफर के आधार पर हर बैंक का लाइव बैलेंस आटोमेटिक कैलकुलेट करता है।"
+      "यहाँ आप अपने सभी सेविंग्स बैंक खाते और ओवरड्राफ्ट (OD) सुविधा वाले PNB"
+      " खाते को मैनेज कर सकते हैं।"
   )
 
-  with st.expander("➕ नया बैंक खाता जोड़ें"):
+  with st.expander("➕ नया बैंक खाता या OD खाता जोड़ें (Click to Open)"):
     with st.form("add_bank_form", clear_on_submit=True):
-      new_bank_name = st.text_input("Bank Name (जैसे: SBI Salary, HDFC A/c)")
+      new_bank_name = st.text_input("Bank Name (जैसे: PNB OD A/c, SBI Salary)")
       new_acc_num = st.text_input("Account Number / Details (जैसे: XXXX1234)")
+      
+      is_od_account = st.checkbox("Is this an Overdraft (OD) Account? (क्या यह OD खाता है?)")
+      
       new_bank_opn = st.number_input(
-          "Opening Balance (Rs)", min_value=0.0, format="%.2f", value=0.0
+          "Available Balance / Opening Balance (Rs)", min_value=0.0, format="%.2f", value=0.0,
+          help="यदि OD खाता है, तो वर्तमान में बचा हुआ उपलब्ध बैलेंस दर्ज करें।"
       )
+      
+      new_od_limit = st.number_input(
+          "Total Sanctioned OD Limit (Rs)", min_value=0.0, format="%.2f", value=0.0,
+          help="जैसे PNB के लिए 211000"
+      )
+
       add_bank_btn = st.form_submit_button("Save Bank Account")
 
       if add_bank_btn:
         if new_bank_name.strip():
           try:
+            od_val = 1 if is_od_account else 0
+            limit_val = new_od_limit if is_od_account else 0.0
             cursor.execute(
                 "INSERT INTO bank_accounts (bank_name, account_number,"
-                " opening_balance) VALUES (?, ?, ?)",
+                " opening_balance, is_od, od_limit) VALUES (?, ?, ?, ?, ?)",
                 (
                     new_bank_name.strip(),
                     new_acc_num.strip(),
                     new_bank_opn,
+                    od_val,
+                    limit_val,
                 ),
             )
             conn.commit()
@@ -1650,7 +1674,7 @@ elif choice == "Manage Bank Accounts":
           st.error("कृपया बैंक का नाम दर्ज करें!")
 
   cursor.execute(
-      "SELECT id, bank_name, account_number, opening_balance FROM bank_accounts"
+      "SELECT id, bank_name, account_number, opening_balance, is_od, od_limit FROM bank_accounts"
   )
   bank_records = cursor.fetchall()
 
@@ -1658,7 +1682,7 @@ elif choice == "Manage Bank Accounts":
     bank_summary_list = []
     grand_bank_balance = 0.0
 
-    for b_id, b_name, b_acc, b_opn in bank_records:
+    for b_id, b_name, b_acc, b_opn, b_is_od, b_od_lim in bank_records:
       cursor.execute(
           "SELECT SUM(amount) FROM transactions WHERE payment_mode = ?",
           (f"Bank: {b_name}",),
@@ -1690,29 +1714,41 @@ elif choice == "Manage Bank Accounts":
       tr_in_res = cursor.fetchone()[0]
       total_tr_in = tr_in_res if tr_in_res else 0.0
 
-      current_balance = (
-          b_opn + total_credited + total_tr_in - total_spent - total_tr_out
-      )
-      grand_bank_balance += current_balance
+      # Calculate balance based on account type
+      if b_is_od == 1:
+        # For OD: available balance = opening_available + credits + tr_in - spent - tr_out
+        current_balance = (
+            b_opn + total_credited + total_tr_in - total_spent - total_tr_out
+        )
+        used_od_amt = b_od_lim - current_balance
+        display_bal_str = f"Avail: Rs {current_balance:,.2f} | Used OD (Negative): -Rs {used_od_amt:,.2f}"
+        grand_bank_balance += current_balance
+      else:
+        current_balance = (
+            b_opn + total_credited + total_tr_in - total_spent - total_tr_out
+        )
+        display_bal_str = f"Rs {current_balance:,.2f}"
+        grand_bank_balance += current_balance
 
       bank_summary_list.append({
           "ID": b_id,
           "Bank Name": b_name,
+          "Type": "Overdraft (OD)" if b_is_od == 1 else "Savings",
           "Account Details": b_acc,
-          "Opening Balance (Rs)": b_opn,
-          "Total In (Credit/Transfer)": total_credited + total_tr_in,
-          "Total Out (Debit/Transfer)": total_spent + total_tr_out,
-          "Current Balance (Rs)": current_balance,
+          "Opening / Base": b_opn,
+          "Total In": total_credited + total_tr_in,
+          "Total Out": total_spent + total_tr_out,
+          "Current Status": display_bal_str,
       })
 
     st.markdown("### 🌐 सभी बैंक खातों का कुल सारांश (Master Consolidated Summary)")
     st.metric(
-        "Total Bank Balance Across All Accounts",
+        "Total Net Bank Balance",
         f"Rs {grand_bank_balance:,.2f}",
     )
 
     st.markdown("---")
-    st.markdown("### 📋 बैंक खातों की सूची और लाइव बैलेंस")
+    st.markdown("### 📋 बैंक खातों की सूची और लाइव स्टेटस")
     bank_summary_df = pd.DataFrame(bank_summary_list)
     st.dataframe(bank_summary_df, use_container_width=True)
 
@@ -1724,10 +1760,10 @@ elif choice == "Manage Bank Accounts":
     )
 
     cursor.execute(
-        "SELECT opening_balance FROM bank_accounts WHERE bank_name = ?",
+        "SELECT opening_balance, is_od, od_limit FROM bank_accounts WHERE bank_name = ?",
         (selected_bank_stmt,),
     )
-    b_opn_val = cursor.fetchone()[0]
+    b_opn_val, b_is_od_val, b_od_lim_val = cursor.fetchone()
 
     cursor.execute(
         "SELECT id, date, type, location, sub_category, amount, remarks FROM"
@@ -1773,12 +1809,15 @@ elif choice == "Manage Bank Accounts":
       b_live_bal = b_opn_val + b_cred_tot - b_deb_tot
 
       col_bk1, col_bk2, col_bk3 = st.columns(3)
-      col_bk1.metric("Opening Balance", f"Rs {b_opn_val:,.2f}")
-      col_bk2.metric(
-          "Total Money In / Out",
-          f"In: {b_cred_tot:,.2f} | Out: {b_deb_tot:,.2f}",
-      )
-      col_bk3.metric("Current Balance", f"Rs {b_live_bal:,.2f}")
+      if b_is_od_val == 1:
+        used_od = b_od_lim_val - b_live_bal
+        col_bk1.metric("Sanctioned OD Limit", f"Rs {b_od_lim_val:,.2f}")
+        col_bk2.metric("Available Limit", f"Rs {b_live_bal:,.2f}")
+        col_bk3.metric("Used OD (Negative)", f"-Rs {used_od:,.2f}")
+      else:
+        col_bk1.metric("Opening Balance", f"Rs {b_opn_val:,.2f}")
+        col_bk2.metric("Money In / Out", f"In: {b_cred_tot:,.2f} | Out: {b_deb_tot:,.2f}")
+        col_bk3.metric("Current Balance", f"Rs {b_live_bal:,.2f}")
 
       disp_bank_df = b_df[
           ["ID", "Date", "Type", "Location", "Category", "Amount", "Remarks"]
@@ -1786,38 +1825,51 @@ elif choice == "Manage Bank Accounts":
       st.dataframe(disp_bank_df, use_container_width=True)
     else:
       col_bk1, col_bk2, col_bk3 = st.columns(3)
-      col_bk1.metric("Opening Balance", f"Rs {b_opn_val:,.2f}")
-      col_bk2.metric("Total Money In / Out", "In: 0.00 | Out: 0.00")
-      col_bk3.metric("Current Balance", f"Rs {b_opn_val:,.2f}")
+      if b_is_od_val == 1:
+        used_od = b_od_lim_val - b_opn_val
+        col_bk1.metric("Sanctioned OD Limit", f"Rs {b_od_lim_val:,.2f}")
+        col_bk2.metric("Available Limit", f"Rs {b_opn_val:,.2f}")
+        col_bk3.metric("Used OD (Negative)", f"-Rs {used_od:,.2f}")
+      else:
+        col_bk1.metric("Opening Balance", f"Rs {b_opn_val:,.2f}")
+        col_bk2.metric("Money In / Out", "In: 0.00 | Out: 0.00")
+        col_bk3.metric("Current Balance", f"Rs {b_opn_val:,.2f}")
       st.info("इस बैंक खाते से संबंधित कोई लेनदेन डेटा नहीं मिला है।")
 
     st.markdown("---")
-    with st.expander("⚙️ बैंक खाता संपादित करें या डिलीट करें (Click to Open)"):
+    with st.expander("⚙️ बैंक खाता या OD डिटेल्स संपादित करें / डिलीट करें (Click to Open)"):
       selected_bank_to_edit = st.selectbox(
           "Choose Bank to Modify / Delete", bank_names_list, key="edit_bank_sel"
       )
       cursor.execute(
-          "SELECT id, account_number, opening_balance FROM bank_accounts WHERE"
+          "SELECT id, account_number, opening_balance, is_od, od_limit FROM bank_accounts WHERE"
           " bank_name = ?",
           (selected_bank_to_edit,),
       )
-      b_id_val, curr_acc, curr_b_opn = cursor.fetchone()
+      b_id_val, curr_acc, curr_b_opn, curr_is_od, curr_od_lim = cursor.fetchone()
 
       with st.form("update_bank_form", clear_on_submit=True):
         up_acc_num = st.text_input("Account Number", value=str(curr_acc))
+        up_is_od = st.checkbox("Is Overdraft Account?", value=bool(curr_is_od))
         up_b_opn = st.number_input(
-            "Opening Balance (Rs)",
+            "Available / Opening Balance (Rs)",
             min_value=0.0,
             format="%.2f",
             value=float(curr_b_opn),
+        )
+        up_od_lim = st.number_input(
+            "Total OD Limit (Rs)",
+            min_value=0.0,
+            format="%.2f",
+            value=float(curr_od_lim),
         )
         up_bank_btn = st.form_submit_button("Update Bank Details")
 
         if up_bank_btn:
           cursor.execute(
-              "UPDATE bank_accounts SET account_number = ?, opening_balance = ?"
+              "UPDATE bank_accounts SET account_number = ?, opening_balance = ?, is_od = ?, od_limit = ?"
               " WHERE bank_name = ?",
-              (up_acc_num, up_b_opn, selected_bank_to_edit),
+              (up_acc_num, up_b_opn, 1 if up_is_od else 0, up_od_lim, selected_bank_to_edit),
           )
           conn.commit()
           success_ph = st.empty()
@@ -1846,11 +1898,10 @@ elif choice == "Manage Loans & LIC":
   )
   st.write(
       "यहाँ आप अपने सभी मासिक (Monthly) लोन ईएमआई और वार्षिक (Yearly) LIC या"
-      " अन्य भुगतानों को जोड़ और मैनेज कर सकते हैं। साथ ही 'Mark as Paid' से"
-      " अलर्ट हटा सकते हैं।"
+      " अन्य भुगतानों को जोड़ और मैनेज कर सकते हैं।"
   )
 
-  with st.expander("➕ नया लोन या LIC जोड़ें"):
+  with st.expander("➕ नया लोन या LIC जोड़ें (Click to Open)"):
     r_freq = st.radio("Frequency", ["Monthly", "Yearly"], horizontal=True)
 
     with st.form("add_rec_form", clear_on_submit=True):
@@ -2040,42 +2091,43 @@ elif choice == "Manage Categories":
       "🏷️ मेनू और सब-कैटेगरी मैनेजर (Dynamic Menu & Sub-Category Manager)"
   )
   st.write(
-      "यहाँ आप **Expense** या **Income** दोनों के लिए नए मेनू (Locations/Types)"
-      " और सब-कैटेगरी (Items) खुद जोड़ सकते हैं।"
+      "यहाँ आप **Expense** या **Income** दोनों के लिए नए मेनू और सब-कैटेगरी"
+      " खुद जोड़ सकते हैं।"
   )
 
-  with st.form("add_cat_form", clear_on_submit=True):
-    sel_type = st.selectbox("Select Transaction Type", ["Expense", "Income"])
+  with st.expander("➕ नई कैटेगरी जोड़ें (Click to Open)"):
+    with st.form("add_cat_form", clear_on_submit=True):
+      sel_type = st.selectbox("Select Transaction Type", ["Expense", "Income"])
 
-    current_locs = get_locations_for_type(cursor, sel_type)
-    sel_loc = st.selectbox("Select Main Menu / Location", current_locs)
+      current_locs = get_locations_for_type(cursor, sel_type)
+      sel_loc = st.selectbox("Select Main Menu / Location", current_locs)
 
-    new_sub_name = st.text_input(
-        "New Sub-Category / Item Name (जैसे: Bonus, Fuel, Rent...)"
-    )
-    add_cat_btn = st.form_submit_button("Add Sub-Category / Item")
+      new_sub_name = st.text_input(
+          "New Sub-Category / Item Name (जैसे: Bonus, Fuel, Rent...)"
+      )
+      add_cat_btn = st.form_submit_button("Add Sub-Category / Item")
 
-    if add_cat_btn:
-      if new_sub_name.strip():
-        try:
-          cursor.execute(
-              "INSERT INTO custom_subcategories (transaction_type, location,"
-              " sub_category_name) VALUES (?, ?, ?)",
-              (sel_type, sel_loc, new_sub_name.strip()),
-          )
-          conn.commit()
-          success_ph = st.empty()
-          success_ph.success(
-              f"'{new_sub_name.strip()}' को [{sel_type} -> {sel_loc}] के अंतर्गत"
-              " सफलतापूर्वक जोड़ दिया गया है!"
-          )
-          time.sleep(1.5)
-          success_ph.empty()
-          st.rerun()
-        except:
-          st.error("यह सब-कैटेगरी पहले से इस मेनू में मौजूद है!")
-      else:
-        st.error("कृपया सब-कैटेगरी का नाम दर्ज करें!")
+      if add_cat_btn:
+        if new_sub_name.strip():
+          try:
+            cursor.execute(
+                "INSERT INTO custom_subcategories (transaction_type, location,"
+                " sub_category_name) VALUES (?, ?, ?)",
+                (sel_type, sel_loc, new_sub_name.strip()),
+            )
+            conn.commit()
+            success_ph = st.empty()
+            success_ph.success(
+                f"'{new_sub_name.strip()}' को [{sel_type} -> {sel_loc}] के अंतर्गत"
+                " सफलतापूर्वक जोड़ दिया गया है!"
+            )
+            time.sleep(1.5)
+            success_ph.empty()
+            st.rerun()
+          except:
+            st.error("यह सब-कैटेगरी पहले से इस मेनू में मौजूद है!")
+        else:
+          st.error("कृपया सब-कैटेगरी का नाम दर्ज करें!")
 
   cursor.execute(
       "SELECT id, transaction_type, location, sub_category_name FROM"
@@ -2108,7 +2160,4 @@ elif choice == "Manage Categories":
         success_ph.empty()
         st.rerun()
   else:
-    st.info(
-        "अभी कोई नई कस्टम कैटेगरी नहीं जोड़ी गई है (डिफ़ॉल्ट कैटेगरी काम कर रही"
-        " हैं)।"
-    )
+    st.info("अभी कोई नई कस्टम कैटेगरी नहीं जोड़ी गई है।")
