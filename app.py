@@ -173,7 +173,7 @@ if cursor.fetchone()[0] == 0:
 cursor.execute("SELECT COUNT(*) FROM bank_accounts")
 if cursor.fetchone()[0] == 0:
   initial_banks = [
-      ("PNB OD A/c", "XXXX9999", 66634.72, 1, 211000.0),
+      ("PNB OD A/c", "XXXX9999", 66000.0, 1, 211000.0),
       ("SBI Salary A/c", "XXXX1234", 25000.0, 0, 0.0),
       ("HDFC Savings A/c", "XXXX5678", 10000.0, 0, 0.0),
   ]
@@ -1619,7 +1619,7 @@ elif choice == "Manage Credit Cards":
   else:
     st.info("कोई क्रेडिट कार्ड दर्ज नहीं है।")
 
-# ----------------- 6. MANAGE SAVINGS BANK ACCOUNTS (WITH PNB OD SUPPORT) -----------------
+# ----------------- 6. MANAGE SAVINGS BANK ACCOUNTS (WITH CORRECT OD NET BALANCE LOGIC) -----------------
 elif choice == "Manage Bank Accounts":
   st.subheader("🏦 सेविंग्स बैंक अकाउंट और PNB OD मैनेजर (Bank & OD Ledger)")
   st.write(
@@ -1631,19 +1631,15 @@ elif choice == "Manage Bank Accounts":
     with st.form("add_bank_form", clear_on_submit=True):
       new_bank_name = st.text_input("Bank Name (जैसे: PNB OD A/c, SBI Salary)")
       new_acc_num = st.text_input("Account Number / Details (जैसे: XXXX1234)")
-      
       is_od_account = st.checkbox("Is this an Overdraft (OD) Account? (क्या यह OD खाता है?)")
-      
       new_bank_opn = st.number_input(
           "Available Balance / Opening Balance (Rs)", min_value=0.0, format="%.2f", value=0.0,
           help="यदि OD खाता है, तो वर्तमान में बचा हुआ उपलब्ध बैलेंस दर्ज करें।"
       )
-      
       new_od_limit = st.number_input(
           "Total Sanctioned OD Limit (Rs)", min_value=0.0, format="%.2f", value=0.0,
           help="जैसे PNB के लिए 211000"
       )
-
       add_bank_btn = st.form_submit_button("Save Bank Account")
 
       if add_bank_btn:
@@ -1652,15 +1648,8 @@ elif choice == "Manage Bank Accounts":
             od_val = 1 if is_od_account else 0
             limit_val = new_od_limit if is_od_account else 0.0
             cursor.execute(
-                "INSERT INTO bank_accounts (bank_name, account_number,"
-                " opening_balance, is_od, od_limit) VALUES (?, ?, ?, ?, ?)",
-                (
-                    new_bank_name.strip(),
-                    new_acc_num.strip(),
-                    new_bank_opn,
-                    od_val,
-                    limit_val,
-                ),
+                "INSERT INTO bank_accounts (bank_name, account_number, opening_balance, is_od, od_limit) VALUES (?, ?, ?, ?, ?)",
+                (new_bank_name.strip(), new_acc_num.strip(), new_bank_opn, od_val, limit_val),
             )
             conn.commit()
             success_ph = st.empty()
@@ -1673,9 +1662,7 @@ elif choice == "Manage Bank Accounts":
         else:
           st.error("कृपया बैंक का नाम दर्ज करें!")
 
-  cursor.execute(
-      "SELECT id, bank_name, account_number, opening_balance, is_od, od_limit FROM bank_accounts"
-  )
+  cursor.execute("SELECT id, bank_name, account_number, opening_balance, is_od, od_limit FROM bank_accounts")
   bank_records = cursor.fetchall()
 
   if bank_records:
@@ -1683,48 +1670,30 @@ elif choice == "Manage Bank Accounts":
     grand_bank_balance = 0.0
 
     for b_id, b_name, b_acc, b_opn, b_is_od, b_od_lim in bank_records:
-      cursor.execute(
-          "SELECT SUM(amount) FROM transactions WHERE payment_mode = ?",
-          (f"Bank: {b_name}",),
-      )
+      cursor.execute("SELECT SUM(amount) FROM transactions WHERE payment_mode = ?", (f"Bank: {b_name}",))
       spent_res = cursor.fetchone()[0]
       total_spent = spent_res if spent_res else 0.0
 
-      cursor.execute(
-          "SELECT SUM(amount) FROM transactions WHERE type = 'Income' AND"
-          " (sub_category LIKE ? OR remarks LIKE ? OR payment_mode LIKE ?)",
-          (f"%{b_name}%", f"%{b_name}%", f"%Bank: {b_name}%"),
-      )
+      cursor.execute("SELECT SUM(amount) FROM transactions WHERE type = 'Income' AND (sub_category LIKE ? OR remarks LIKE ? OR payment_mode LIKE ?)", (f"%{b_name}%", f"%{b_name}%", f"%Bank: {b_name}%"))
       credit_res = cursor.fetchone()[0]
       total_credited = credit_res if credit_res else 0.0
 
-      cursor.execute(
-          "SELECT SUM(amount) FROM transactions WHERE type = 'Transfer' AND"
-          " payment_mode = ? AND sub_category = 'Self Transfer Out'",
-          (f"Bank: {b_name}",),
-      )
+      cursor.execute("SELECT SUM(amount) FROM transactions WHERE type = 'Transfer' AND payment_mode = ? AND sub_category = 'Self Transfer Out'", (f"Bank: {b_name}",))
       tr_out_res = cursor.fetchone()[0]
       total_tr_out = tr_out_res if tr_out_res else 0.0
 
-      cursor.execute(
-          "SELECT SUM(amount) FROM transactions WHERE type = 'Transfer' AND"
-          " payment_mode = ? AND sub_category = 'Self Transfer In'",
-          (f"Bank: {b_name}",),
-      )
+      cursor.execute("SELECT SUM(amount) FROM transactions WHERE type = 'Transfer' AND payment_mode = ? AND sub_category = 'Self Transfer In'", (f"Bank: {b_name}",))
       tr_in_res = cursor.fetchone()[0]
       total_tr_in = tr_in_res if tr_in_res else 0.0
 
+      current_balance = b_opn + total_credited + total_tr_in - total_spent - total_tr_out
+
       if b_is_od == 1:
-        current_balance = (
-            b_opn + total_credited + total_tr_in - total_spent - total_tr_out
-        )
         used_od_amt = b_od_lim - current_balance
+        net_contribution = -used_od_amt 
         display_bal_str = f"Avail: Rs {current_balance:,.2f} | Used OD (Negative): -Rs {used_od_amt:,.2f}"
-        grand_bank_balance += current_balance
+        grand_bank_balance += net_contribution
       else:
-        current_balance = (
-            b_opn + total_credited + total_tr_in - total_spent - total_tr_out
-        )
         display_bal_str = f"Rs {current_balance:,.2f}"
         grand_bank_balance += current_balance
 
@@ -1734,14 +1703,12 @@ elif choice == "Manage Bank Accounts":
           "Type": "Overdraft (OD)" if b_is_od == 1 else "Savings",
           "Account Details": b_acc,
           "Opening / Base": b_opn,
-          "Total In": total_credited + total_tr_in,
-          "Total Out": total_spent + total_tr_out,
           "Current Status": display_bal_str,
       })
 
     st.markdown("### 🌐 सभी बैंक खातों का कुल सारांश (Master Consolidated Summary)")
     st.metric(
-        "Total Net Bank Balance",
+        "Total Net Bank Balance (Including OD Negative Dues)",
         f"Rs {grand_bank_balance:,.2f}",
     )
 
