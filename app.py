@@ -10,12 +10,12 @@ st.set_page_config(
 )
 
 
-# robust database connection and auto-migration
+# robust database connection and migration
 def init_db():
   conn = sqlite3.connect("comprehensive_finance.db", check_same_thread=False)
   cursor = conn.cursor()
 
-  # Create tables if they don't exist
+  # Create tables with all columns explicitly included to prevent missing column errors
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,7 +25,7 @@ def init_db():
             category TEXT,
             sub_category TEXT,
             amount REAL,
-            payment_mode TEXT,
+            payment_mode TEXT DEFAULT 'Cash',
             remarks TEXT
         )
     """)
@@ -67,42 +67,37 @@ def init_db():
         )
     """)
 
-  # Custom Sub-Categories table with composite unique constraint to allow same name in different locations
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS custom_subcategories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            transaction_type TEXT,
+            transaction_type TEXT DEFAULT 'Expense',
             location TEXT,
             sub_category_name TEXT,
             UNIQUE(transaction_type, location, sub_category_name)
         )
     """)
 
-  # Automated safe column checking and adding missing columns dynamically
-  required_columns = {
-      "transactions": [("payment_mode", "TEXT DEFAULT 'Cash'")],
-      "credit_cards": [
-          ("last_paid_month", "TEXT DEFAULT ''"),
-          ("total_limit", "REAL DEFAULT 0.0"),
-          ("opening_balance", "REAL DEFAULT 0.0"),
-      ],
-      "bank_accounts": [
-          ("is_od", "INTEGER DEFAULT 0"),
-          ("od_limit", "REAL DEFAULT 0.0"),
-      ],
-      "recurring_payments": [("last_paid_period", "TEXT DEFAULT ''")],
-      "custom_subcategories": [("transaction_type", "TEXT DEFAULT 'Expense'")],
-  }
+  # Double safety check to add any missing columns if upgrading from an older version
+  migrations = [
+      ("ALTER TABLE transactions ADD COLUMN payment_mode TEXT DEFAULT 'Cash'", "transactions"),
+      ("ALTER TABLE credit_cards ADD COLUMN last_paid_month TEXT DEFAULT ''", "credit_cards"),
+      ("ALTER TABLE credit_cards ADD COLUMN total_limit REAL DEFAULT 0.0", "credit_cards"),
+      ("ALTER TABLE credit_cards ADD COLUMN opening_balance REAL DEFAULT 0.0", "credit_cards"),
+      ("ALTER TABLE bank_accounts ADD COLUMN is_od INTEGER DEFAULT 0", "bank_accounts"),
+      ("ALTER TABLE bank_accounts ADD COLUMN od_limit REAL DEFAULT 0.0", "bank_accounts"),
+      ("ALTER TABLE recurring_payments ADD COLUMN last_paid_period TEXT DEFAULT ''", "recurring_payments"),
+      ("ALTER TABLE custom_subcategories ADD COLUMN transaction_type TEXT DEFAULT 'Expense'", "custom_subcategories")
+  ]
 
-  for table, cols in required_columns.items():
-    cursor.execute(f"PRAGMA table_info({table})")
-    existing_cols = [col[1] for col in cursor.fetchall()]
-    for col_name, col_def in cols:
-      if col_name not in existing_cols:
-        try:
-          cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
-        except:
-          pass
+  for col_sql, table_name in migrations:
+    try:
+      cursor.execute(f"PRAGMA table_info({table_name})")
+      columns = [col[1] for col in cursor.fetchall()]
+      col_name = col_sql.split("ADD COLUMN ")[1].split(" ")[0]
+      if col_name not in columns:
+        cursor.execute(col_sql)
+    except:
+      pass
 
   conn.commit()
   return conn
