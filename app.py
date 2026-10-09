@@ -455,7 +455,7 @@ menu = [
     "Reports & Dashboard",
     "Detailed Summary (Expense/Income)",
     "Edit Transaction",
-    "Manage Credit Cards (Dates)",
+    "Manage Credit Cards",
     "Manage Loans & LIC",
     "Manage Categories",
 ]
@@ -1084,16 +1084,16 @@ elif choice == "Edit Transaction":
   else:
     st.warning("दर्ज की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
 
-# ----------------- 5. MANAGE CREDIT CARDS (ADVANCED LEDGER & LIMIT MANAGER) -----------------
-elif choice == "Manage Credit Cards (Dates)":
+# ----------------- 5. MANAGE CREDIT CARDS (ADVANCED LEDGER & PERIOD FILTER) -----------------
+elif choice == "Manage Credit Cards":
   st.subheader(
       "💳 क्रेडिट कार्ड लेजर, लिमिट और स्टेटमेंट मैनेजर (Advanced CC Ledger)"
   )
   st.write(
       "यहाँ आप सभी क्रेडिट कार्ड्स की **Dynamic Total Limit**, **Opening"
       " Balance (पुराना बकाया)** और **Billing/Due Dates** मैनेज कर सकते हैं।"
-      " साथ ही किसी भी कार्ड का पूरा स्टेटमेंट (Debit/Credit/Available Limit)"
-      " देख सकते हैं।"
+      " साथ ही किसी भी कार्ड का पूरा स्टेटमेंट और समय-सीमा (Period Filter)"
+      " के हिसाब से लेजर देख सकते हैं।"
   )
 
   with st.expander("➕ नया क्रेडिट कार्ड जोड़ें"):
@@ -1156,10 +1156,8 @@ elif choice == "Manage Credit Cards (Dates)":
   if cc_records:
     st.markdown("### 📋 आपके सभी क्रेडिट कार्ड्स की लिमिट और स्थिति")
 
-    # Calculate live stats for each card
     cc_summary_list = []
     for c_id, c_name, b_dt, d_dt, t_lim, o_b, l_paid in cc_records:
-      # Calculate total spent (Debit) on this card
       cursor.execute(
           "SELECT SUM(amount) FROM transactions WHERE payment_mode = ?",
           (f"CC: {c_name}",),
@@ -1167,8 +1165,6 @@ elif choice == "Manage Credit Cards (Dates)":
       spent_res = cursor.fetchone()[0]
       total_spent = spent_res if spent_res else 0.0
 
-      # Calculate total payments or refunds credited to this card
-      # We check income transactions or remarks/categories indicating bill payment to this card
       cursor.execute(
           "SELECT SUM(amount) FROM transactions WHERE type = 'Income' AND"
           " (sub_category LIKE ? OR remarks LIKE ?)",
@@ -1177,7 +1173,6 @@ elif choice == "Manage Credit Cards (Dates)":
       credit_res = cursor.fetchone()[0]
       total_credited = credit_res if credit_res else 0.0
 
-      # Net Outstanding = Opening Balance + Total Spent - Total Credited
       net_outstanding = o_b + total_spent - total_credited
       available_limit = t_lim - net_outstanding
 
@@ -1198,13 +1193,27 @@ elif choice == "Manage Credit Cards (Dates)":
     st.dataframe(cc_summary_df, use_container_width=True)
 
     st.markdown("---")
-    st.markdown("### 📊 विस्तृत क्रेडिट कार्ड लेजर और स्टेटमेंट (Detailed Ledger)")
+    st.markdown("### 📊 विस्तृत क्रेडिट कार्ड लेजर और समय-सीमा (Detailed Statement)")
+
     card_names_list = get_sorted_cc_list(cursor)
     selected_ledger_card = st.selectbox(
-        "Select Card to View Full Statement", card_names_list, key="ledger_card_sel"
+        "Select Card to View Statement", card_names_list, key="ledger_card_sel"
     )
 
-    # Fetch card details
+    # Period filter for this card inside the tab
+    cc_period = st.selectbox(
+        "Select Time Period for Statement",
+        [
+            "All Time",
+            "Monthly",
+            "Quarterly",
+            "Half Yearly",
+            "Yearly",
+            "Custom Date Range",
+        ],
+        key="cc_period_sel",
+    )
+
     cursor.execute(
         "SELECT total_limit, opening_balance FROM credit_cards WHERE"
         " card_name = ?",
@@ -1214,7 +1223,7 @@ elif choice == "Manage Credit Cards (Dates)":
     c_lim = card_meta[0] if card_meta else 0.0
     c_opn = card_meta[1] if card_meta else 0.0
 
-    # Fetch all transactions for this specific card
+    # Fetch transactions for this card
     cursor.execute(
         "SELECT id, date, type, location, sub_category, amount, remarks FROM"
         " transactions WHERE payment_mode = ? ORDER BY date DESC",
@@ -1222,16 +1231,8 @@ elif choice == "Manage Credit Cards (Dates)":
     )
     card_trans = cursor.fetchall()
 
-    st.markdown(f"**Card Statement for: `{selected_ledger_card}`**")
-    col_l1, col_l2, col_l3 = st.columns(3)
-    c_spent_tot = sum([t[5] for t in card_trans])
-    c_avail = c_lim - (c_opn + c_spent_tot)
-    col_l1.metric("Total Limit", f"Rs {c_lim:,.2f}")
-    col_l2.metric("Total Outstanding", f"Rs {c_opn + c_spent_tot:,.2f}")
-    col_l3.metric("Available Limit", f"Rs {c_avail:,.2f}")
-
     if card_trans:
-      card_trans_df = pd.DataFrame(
+      c_df = pd.DataFrame(
           card_trans,
           columns=[
               "ID",
@@ -1239,13 +1240,98 @@ elif choice == "Manage Credit Cards (Dates)":
               "Type",
               "Location",
               "Category",
-              "Amount (Rs)",
+              "Amount",
               "Remarks",
           ],
       )
-      st.dataframe(card_trans_df, use_container_width=True)
+      c_df["DateTime"] = pd.to_datetime(c_df["Date"])
+
+      # Apply period filtering
+      current_date = get_current_ist_date()
+      current_year = current_date.year
+
+      if cc_period == "Monthly":
+        sel_m_str = st.text_input(
+            "Enter Month (YYYY-MM)",
+            value=get_current_ist_date().strftime("%Y-%m"),
+            key="cc_m_input",
+        )
+        if sel_m_str:
+          c_df = c_df[c_df["Date"].str.startswith(sel_m_str)]
+      elif cc_period == "Yearly":
+        sel_y_str = st.text_input(
+            "Enter Year (YYYY)", value=str(current_year), key="cc_y_input"
+        )
+        if sel_y_str:
+          c_df = c_df[c_df["Date"].str.startswith(sel_y_str)]
+      elif cc_period == "Quarterly":
+        q_ch = st.selectbox(
+            "Select Quarter",
+            ["Q1 (Jan-Mar)", "Q2 (Apr-Jun)", "Q3 (Jul-Sep)", "Q4 (Oct-Dec)"],
+            key="cc_q_sel",
+        )
+        yr_q = st.text_input(
+            "Enter Year", value=str(current_year), key="cc_q_yr"
+        )
+        if yr_q:
+          if "Q1" in q_ch:
+            m_list = [f"{yr_q}-01", f"{yr_q}-02", f"{yr_q}-03"]
+          elif "Q2" in q_ch:
+            m_list = [f"{yr_q}-04", f"{yr_q}-05", f"{yr_q}-06"]
+          elif "Q3" in q_ch:
+            m_list = [f"{yr_q}-07", f"{yr_q}-08", f"{yr_q}-09"]
+          else:
+            m_list = [f"{yr_q}-10", f"{yr_q}-11", f"{yr_q}-12"]
+          c_df = c_df[c_df["Date"].str[:7].isin(m_list)]
+      elif cc_period == "Half Yearly":
+        h_ch = st.selectbox(
+            "Select Half Year",
+            ["H1 (Jan - Jun)", "H2 (Jul - Dec)"],
+            key="cc_h_sel",
+        )
+        yr_h = st.text_input(
+            "Enter Year", value=str(current_year), key="cc_h_yr"
+        )
+        if yr_h:
+          if "H1" in h_ch:
+            m_list = [f"{yr_h}-{m:02d}" for m in range(1, 7)]
+          else:
+            m_list = [f"{yr_h}-{m:02d}" for m in range(7, 13)]
+          c_df = c_df[c_df["Date"].str[:7].isin(m_list)]
+      elif cc_period == "Custom Date Range":
+        col_cd1, col_cd2 = st.columns(2)
+        with col_cd1:
+          c_start = st.date_input("Start Date", key="cc_start_date")
+        with col_cd2:
+          c_end = st.date_input("End Date", key="cc_end_date")
+        c_df = c_df[
+            (c_df["DateTime"].dt.date >= c_start)
+            & (c_df["DateTime"].dt.date <= c_end)
+        ]
+
+      filtered_spent = c_df["Amount"].sum()
+      filtered_avail = c_lim - (c_opn + filtered_spent)
+
+      col_l1, col_l2, col_l3 = st.columns(3)
+      col_l1.metric("Total Limit", f"Rs {c_lim:,.2f}")
+      col_l2.metric(
+          f"Spent ({cc_period})",
+          f"Rs {filtered_spent:,.2f}",
+      )
+      col_l3.metric("Available Limit", f"Rs {filtered_avail:,.2f}")
+
+      disp_card_df = c_df[
+          ["ID", "Date", "Type", "Location", "Category", "Amount", "Remarks"]
+      ]
+      st.dataframe(disp_card_df, use_container_width=True)
     else:
-      st.info(f"इस कार्ड से संबंधित कोई लेनदेन डेटा नहीं मिला है।")
+      col_l1, col_l2, col_l3 = st.columns(3)
+      col_l1.metric("Total Limit", f"Rs {c_lim:,.2f}")
+      col_l2.metric("Spent (Selected Period)", "Rs 0.00")
+      col_l3.metric(
+          "Available Limit", f"Rs {c_lim - c_opn:,.2f}"
+      )
+      st.info(f"इस कार्ड से संबंधित इस अवधि में कोई लेनदेन डेटा नहीं मिला है।")
 
     st.markdown("---")
     st.markdown("### ⚙️ कार्ड की लिमिट या तारीखें अपडेट करें (Dynamic Update)")
