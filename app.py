@@ -43,6 +43,16 @@ def init_db():
         )
     """)
 
+  # Savings Bank Accounts Management table
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bank_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bank_name TEXT UNIQUE,
+            account_number TEXT,
+            opening_balance REAL DEFAULT 0.0
+        )
+    """)
+
   # Loans & LIC (Recurring Payments) table
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS recurring_payments (
@@ -146,6 +156,20 @@ if cursor.fetchone()[0] == 0:
   )
   conn.commit()
 
+# Pre-populate default savings bank accounts if table is empty
+cursor.execute("SELECT COUNT(*) FROM bank_accounts")
+if cursor.fetchone()[0] == 0:
+  initial_banks = [
+      ("SBI Salary A/c", "XXXX1234", 25000.0),
+      ("HDFC Savings A/c", "XXXX5678", 10000.0),
+  ]
+  cursor.executemany(
+      "INSERT OR IGNORE INTO bank_accounts (bank_name, account_number,"
+      " opening_balance) VALUES (?, ?, ?)",
+      initial_banks,
+  )
+  conn.commit()
+
 # Pre-populate default loans if table is empty
 cursor.execute("SELECT COUNT(*) FROM recurring_payments")
 if cursor.fetchone()[0] == 0:
@@ -183,6 +207,27 @@ def get_sorted_cc_list(cursor):
     if c not in sorted_list:
       sorted_list.append(c)
   return sorted_list
+
+
+# Helper function to get bank accounts list
+def get_sorted_bank_list(cursor):
+  cursor.execute("SELECT bank_name FROM bank_accounts")
+  rows = cursor.fetchall()
+  return [r[0] for r in rows]
+
+
+# Helper function for dynamic payment modes combining Cash, UPI, Net Banking, Cards, and Bank Accounts
+def get_dynamic_payment_modes(cursor):
+  base_modes = ["Cash", "UPI", "Debit Card", "Net Banking", "Other"]
+  # Add Credit cards prefixed with CC:
+  cc_list = get_sorted_cc_list(cursor)
+  cc_modes = [f"CC: {c}" for c in cc_list]
+
+  # Add Bank accounts prefixed with Bank:
+  bank_list = get_sorted_bank_list(cursor)
+  bank_modes = [f"Bank: {b}" for b in bank_list]
+
+  return base_modes + cc_modes + bank_modes
 
 
 # Helper function for dynamic locations/sources
@@ -279,7 +324,7 @@ with col2:
   )
 
 st.write(
-    "अपने दैनिक, मासिक, वार्षिक और क्रेडिट कार्ड / भुगतान माध्यम के हिसाब से"
+    "अपने दैनिक, मासिक, वार्षिक और क्रेडिट कार्ड / बैंक खातों के हिसाब से"
     " आय-व्यय का पूरा हिसाब रखें।"
 )
 
@@ -456,6 +501,7 @@ menu = [
     "Detailed Summary (Expense/Income)",
     "Edit Transaction",
     "Manage Credit Cards",
+    "Manage Bank Accounts",
     "Manage Loans & LIC",
     "Manage Categories",
 ]
@@ -467,14 +513,10 @@ if choice == "Add Transaction":
 
   t_type = st.selectbox("Type", ["Expense", "Income"])
 
-  pay_modes = ["Cash", "Credit Card", "UPI", "Debit Card", "Net Banking", "Other"]
-  base_payment_mode = st.selectbox("Payment Mode", pay_modes)
+  all_pay_modes = get_dynamic_payment_modes(cursor)
+  base_payment_mode = st.selectbox("Payment Mode / Source", all_pay_modes)
 
   final_payment_mode = base_payment_mode
-  if base_payment_mode == "Credit Card":
-    cc_list = get_sorted_cc_list(cursor)
-    credit_card_choice = st.selectbox("Select Credit Card", cc_list)
-    final_payment_mode = f"CC: {credit_card_choice}"
 
   with st.form("add_trans_form", clear_on_submit=True):
     trans_date = st.date_input("Transaction Date", value=get_current_ist_date())
@@ -1028,27 +1070,18 @@ elif choice == "Edit Transaction":
         key="edit_amount",
     )
 
-    pay_modes = ["Cash", "Credit Card", "UPI", "Debit Card", "Net Banking", "Other"]
+    all_pay_modes = get_dynamic_payment_modes(cursor)
     default_pay_idx = 0
-    if r_pay_mode.startswith("CC: "):
-      default_pay_idx = 1
+    if r_pay_mode in all_pay_modes:
+      default_pay_idx = all_pay_modes.index(r_pay_mode)
 
     new_pay_mode = st.selectbox(
-        "Payment Mode", pay_modes, index=default_pay_idx, key="edit_paymode"
+        "Payment Mode / Source",
+        all_pay_modes,
+        index=default_pay_idx,
+        key="edit_paymode",
     )
-
     final_edit_pay_mode = new_pay_mode
-    if new_pay_mode == "Credit Card":
-      cc_list = get_sorted_cc_list(cursor)
-      cc_index = 0
-      extracted_card = r_pay_mode.replace("CC: ", "")
-      if extracted_card in cc_list:
-        cc_index = cc_list.index(extracted_card)
-
-      selected_cc_edit = st.selectbox(
-          "Select Credit Card", cc_list, index=cc_index, key="edit_cc_choice"
-      )
-      final_edit_pay_mode = f"CC: {selected_cc_edit}"
 
     new_remarks = st.text_area("Remarks", value=r_remarks, key="edit_remarks")
 
@@ -1084,7 +1117,7 @@ elif choice == "Edit Transaction":
   else:
     st.warning("दर्ज की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
 
-# ----------------- 5. MANAGE CREDIT CARDS (ADVANCED LEDGER & MASTER SUMMARY) -----------------
+# ----------------- 5. MANAGE CREDIT CARDS (ADVANCED LEDGER & COLLAPSIBLE SETTINGS) -----------------
 elif choice == "Manage Credit Cards":
   st.subheader(
       "💳 क्रेडिट कार्ड लेजर, लिमिट और स्टेटमेंट मैनेजर (Advanced CC Ledger)"
@@ -1092,8 +1125,7 @@ elif choice == "Manage Credit Cards":
   st.write(
       "यहाँ आप सभी क्रेडिट कार्ड्स की **Dynamic Total Limit**, **Opening"
       " Balance (पुराना बकाया)** और **Billing/Due Dates** मैनेज कर सकते हैं।"
-      " साथ ही सभी कार्ड्स का ग्लोबल मास्टर ओवरव्यू और व्यक्तिगत स्टेटमेंट देख"
-      " सकते हैं।"
+      " साथ ही मास्टर ओवरव्यू और व्यक्तिगत स्टेटमेंट देख सकते हैं।"
   )
 
   with st.expander("➕ नया क्रेडिट कार्ड जोड़ें"):
@@ -1154,7 +1186,6 @@ elif choice == "Manage Credit Cards":
   cc_records = cursor.fetchall()
 
   if cc_records:
-    # ----------------- MASTER GLOBAL CREDIT SUMMARY -----------------
     grand_total_limit = 0.0
     grand_total_spent = 0.0
     grand_total_credited = 0.0
@@ -1173,7 +1204,6 @@ elif choice == "Manage Credit Cards":
       total_spent = spent_res if spent_res else 0.0
       grand_total_spent += total_spent
 
-      # Check both Income type or Refund subcategories/remarks mentioning this card
       cursor.execute(
           "SELECT SUM(amount) FROM transactions WHERE type = 'Income' AND"
           " (sub_category LIKE ? OR remarks LIKE ? OR payment_mode LIKE ?)",
@@ -1251,7 +1281,6 @@ elif choice == "Manage Credit Cards":
     c_lim = card_meta[0] if card_meta else 0.0
     c_opn = card_meta[1] if card_meta else 0.0
 
-    # Fetch debit transactions for this card
     cursor.execute(
         "SELECT id, date, type, location, sub_category, amount, remarks FROM"
         " transactions WHERE payment_mode = ? ORDER BY date DESC",
@@ -1259,7 +1288,6 @@ elif choice == "Manage Credit Cards":
     )
     card_trans = cursor.fetchall()
 
-    # Fetch credit/refund/payment transactions for this card
     cursor.execute(
         "SELECT id, date, type, location, sub_category, amount, remarks FROM"
         " transactions WHERE type = 'Income' AND (sub_category LIKE ? OR"
@@ -1268,10 +1296,8 @@ elif choice == "Manage Credit Cards":
     )
     card_refunds = cursor.fetchall()
 
-    # Combine both into a statement dataframe
     all_card_rows = card_trans + card_refunds
     if all_card_rows:
-      # Remove duplicates if any ID matches
       unique_rows = {r[0]: r for r in all_card_rows}.values()
       c_df = pd.DataFrame(
           list(unique_rows),
@@ -1349,7 +1375,6 @@ elif choice == "Manage Credit Cards":
             & (c_df["DateTime"].dt.date <= c_end)
         ]
 
-      # Calculate filtered spent vs credited
       filtered_spent = c_df[c_df["Type"] == "Expense"]["Amount"].sum()
       filtered_credited = c_df[c_df["Type"] == "Income"]["Amount"].sum()
       filtered_avail = c_lim - (
@@ -1378,54 +1403,55 @@ elif choice == "Manage Credit Cards":
       st.info(f"इस कार्ड से संबंधित इस अवधि में कोई लेनदेन डेटा नहीं मिला है।")
 
     st.markdown("---")
-    st.markdown("### ⚙️ कार्ड की लिमिट या तारीखें अपडेट करें (Dynamic Update)")
-    selected_card_to_edit = st.selectbox(
-        "Choose Card to Modify", card_names_list, key="update_card_meta_sel"
-    )
+    # Collapsible Expander for CC Settings / Edit
+    with st.expander("⚙️ कार्ड की लिमिट या तारीखें एडिट करें (Click to Open)"):
+      selected_card_to_edit = st.selectbox(
+          "Choose Card to Modify", card_names_list, key="update_card_meta_sel"
+      )
 
-    cursor.execute(
-        "SELECT billing_date, due_date, total_limit, opening_balance FROM"
-        " credit_cards WHERE card_name = ?",
-        (selected_card_to_edit,),
-    )
-    curr_b, curr_d, curr_lim, curr_opn = cursor.fetchone()
+      cursor.execute(
+          "SELECT billing_date, due_date, total_limit, opening_balance FROM"
+          " credit_cards WHERE card_name = ?",
+          (selected_card_to_edit,),
+      )
+      curr_b, curr_d, curr_lim, curr_opn = cursor.fetchone()
 
-    with st.form("update_cc_meta_form", clear_on_submit=True):
-      up_b = st.number_input(
-          "Billing Date", min_value=1, max_value=31, value=int(curr_b)
-      )
-      up_d = st.number_input(
-          "Due Date", min_value=1, max_value=31, value=int(curr_d)
-      )
-      up_lim = st.number_input(
-          "Total Credit Limit (Rs)",
-          min_value=0.0,
-          format="%.2f",
-          value=float(curr_lim),
-      )
-      up_opn = st.number_input(
-          "Opening Balance / Past Dues (Rs)",
-          min_value=0.0,
-          format="%.2f",
-          value=float(curr_opn),
-      )
-      up_btn = st.form_submit_button("Update Card Settings")
-
-      if up_btn:
-        cursor.execute(
-            "UPDATE credit_cards SET billing_date = ?, due_date = ?,"
-            " total_limit = ?, opening_balance = ? WHERE card_name = ?",
-            (up_b, up_d, up_lim, up_opn, selected_card_to_edit),
+      with st.form("update_cc_meta_form", clear_on_submit=True):
+        up_b = st.number_input(
+            "Billing Date", min_value=1, max_value=31, value=int(curr_b)
         )
-        conn.commit()
-        success_ph = st.empty()
-        success_ph.success(
-            f"🎉 कार्ड '{selected_card_to_edit}' की डिटेल्स सफलतापूर्वक अपडेट"
-            " हो गईं!"
+        up_d = st.number_input(
+            "Due Date", min_value=1, max_value=31, value=int(curr_d)
         )
-        time.sleep(1.5)
-        success_ph.empty()
-        st.rerun()
+        up_lim = st.number_input(
+            "Total Credit Limit (Rs)",
+            min_value=0.0,
+            format="%.2f",
+            value=float(curr_lim),
+        )
+        up_opn = st.number_input(
+            "Opening Balance / Past Dues (Rs)",
+            min_value=0.0,
+            format="%.2f",
+            value=float(curr_opn),
+        )
+        up_btn = st.form_submit_button("Update Card Settings")
+
+        if up_btn:
+          cursor.execute(
+              "UPDATE credit_cards SET billing_date = ?, due_date = ?,"
+              " total_limit = ?, opening_balance = ? WHERE card_name = ?",
+              (up_b, up_d, up_lim, up_opn, selected_card_to_edit),
+          )
+          conn.commit()
+          success_ph = st.empty()
+          success_ph.success(
+              f"🎉 कार्ड '{selected_card_to_edit}' की डिटेल्स सफलतापूर्वक अपडेट"
+              " हो गईं!"
+          )
+          time.sleep(1.5)
+          success_ph.empty()
+          st.rerun()
 
     st.markdown("---")
     st.markdown(
@@ -1454,7 +1480,200 @@ elif choice == "Manage Credit Cards":
   else:
     st.info("कोई क्रेडिट कार्ड दर्ज नहीं है।")
 
-# ----------------- 6. MANAGE LOANS & LIC (RECURRING PAYMENTS) -----------------
+# ----------------- 6. MANAGE SAVINGS BANK ACCOUNTS -----------------
+elif choice == "Manage Bank Accounts":
+  st.subheader("🏦 सेविंग्स बैंक अकाउंट मैनेजर (Savings Bank Accounts Ledger)")
+  st.write(
+      "यहाँ आप अपने सभी बैंक खाते (Savings Bank A/c) जोड़ और मैनेज कर सकते हैं।"
+      " ऐप आपके द्वारा किए गए खर्चों (Debit) या बैंक जमा/रिफंड (Credit) के"
+      " आधार पर हर बैंक का लाइव बैलेंस आटोमेटिक कैलकुलेट करता है।"
+  )
+
+  with st.expander("➕ नया बैंक खाता जोड़ें"):
+    with st.form("add_bank_form", clear_on_submit=True):
+      new_bank_name = st.text_input("Bank Name (जैसे: SBI Salary, HDFC A/c)")
+      new_acc_num = st.text_input("Account Number / Details (जैसे: XXXX1234)")
+      new_bank_opn = st.number_input(
+          "Opening Balance (Rs)", min_value=0.0, format="%.2f", value=0.0
+      )
+      add_bank_btn = st.form_submit_button("Save Bank Account")
+
+      if add_bank_btn:
+        if new_bank_name.strip():
+          try:
+            cursor.execute(
+                "INSERT INTO bank_accounts (bank_name, account_number,"
+                " opening_balance) VALUES (?, ?, ?)",
+                (
+                    new_bank_name.strip(),
+                    new_acc_num.strip(),
+                    new_bank_opn,
+                ),
+            )
+            conn.commit()
+            success_ph = st.empty()
+            success_ph.success(f"बैंक खाता '{new_bank_name}' सफलतापूर्वक जुड़ गया!")
+            time.sleep(1.5)
+            success_ph.empty()
+            st.rerun()
+          except:
+            st.error("यह बैंक खाता पहले से मौजूद है!")
+        else:
+          st.error("कृपया बैंक का नाम दर्ज करें!")
+
+  cursor.execute(
+      "SELECT id, bank_name, account_number, opening_balance FROM bank_accounts"
+  )
+  bank_records = cursor.fetchall()
+
+  if bank_records:
+    bank_summary_list = []
+    grand_bank_balance = 0.0
+
+    for b_id, b_name, b_acc, b_opn in bank_records:
+      # Calculate total spent / withdrawn from this bank
+      cursor.execute(
+          "SELECT SUM(amount) FROM transactions WHERE payment_mode = ?",
+          (f"Bank: {b_name}",),
+      )
+      spent_res = cursor.fetchone()[0]
+      total_spent = spent_res if spent_res else 0.0
+
+      # Calculate total deposited / income credited to this bank
+      cursor.execute(
+          "SELECT SUM(amount) FROM transactions WHERE type = 'Income' AND"
+          " (sub_category LIKE ? OR remarks LIKE ? OR payment_mode LIKE ?)",
+          (f"%{b_name}%", f"%{b_name}%", f"%Bank: {b_name}%"),
+      )
+      credit_res = cursor.fetchone()[0]
+      total_credited = credit_res if credit_res else 0.0
+
+      current_balance = b_opn + total_credited - total_spent
+      grand_bank_balance += current_balance
+
+      bank_summary_list.append({
+          "ID": b_id,
+          "Bank Name": b_name,
+          "Account Details": b_acc,
+          "Opening Balance (Rs)": b_opn,
+          "Total Credited (Rs)": total_credited,
+          "Total Debited (Rs)": total_spent,
+          "Current Balance (Rs)": current_balance,
+      })
+
+    st.markdown("### 🌐 सभी बैंक खातों का कुल सारांश (Master Summary)")
+    st.metric("Total Bank Balance Across All Accounts", f"Rs {grand_bank_balance:,.2f}")
+
+    st.markdown("---")
+    st.markdown("### 📋 बैंक खातों की सूची और लाइव बैलेंस")
+    bank_summary_df = pd.DataFrame(bank_summary_list)
+    st.dataframe(bank_summary_df, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### 📊 विशिष्ट बैंक खाते का लेजर / स्टेटमेंट (Bank Statement)")
+    bank_names_list = get_sorted_bank_list(cursor)
+    selected_bank_stmt = st.selectbox(
+        "Select Bank Account", bank_names_list, key="bank_stmt_sel"
+    )
+
+    cursor.execute(
+        "SELECT opening_balance FROM bank_accounts WHERE bank_name = ?",
+        (selected_bank_stmt,),
+    )
+    b_opn_val = cursor.fetchone()[0]
+
+    # Fetch debits for this bank
+    cursor.execute(
+        "SELECT id, date, type, location, sub_category, amount, remarks FROM"
+        " transactions WHERE payment_mode = ? ORDER BY date DESC",
+        (f"Bank: {selected_bank_stmt}",),
+    )
+    b_debits = cursor.fetchall()
+
+    # Fetch credits for this bank
+    cursor.execute(
+        "SELECT id, date, type, location, sub_category, amount, remarks FROM"
+        " transactions WHERE type = 'Income' AND (sub_category LIKE ? OR"
+        " remarks LIKE ?) ORDER BY date DESC",
+        (f"%{selected_bank_stmt}%", f"%{selected_bank_stmt}%"),
+    )
+    b_credits = cursor.fetchall()
+
+    all_b_rows = b_debits + b_credits
+    if all_b_rows:
+      unique_b_rows = {r[0]: r for r in all_b_rows}.values()
+      b_df = pd.DataFrame(
+          list(unique_b_rows),
+          columns=[
+              "ID",
+              "Date",
+              "Type",
+              "Location",
+              "Category",
+              "Amount",
+              "Remarks",
+          ],
+      )
+      b_df["DateTime"] = pd.to_datetime(b_df["Date"])
+
+      b_cred_tot = b_df[b_df["Type"] == "Income"]["Amount"].sum()
+      b_deb_tot = b_df[b_df["Type"] == "Expense"]["Amount"].sum()
+      b_live_bal = b_opn_val + b_cred_tot - b_deb_tot
+
+      col_bk1, col_bk2, col_bk3 = st.columns(3)
+      col_bk1.metric("Opening Balance", f"Rs {b_opn_val:,.2f}")
+      col_bk2.metric("Total Transactions", f"Rs {b_deb_tot + b_cred_tot:,.2f}")
+      col_bk3.metric("Current Balance", f"Rs {b_live_bal:,.2f}")
+
+      disp_bank_df = b_df[
+          ["ID", "Date", "Type", "Location", "Category", "Amount", "Remarks"]
+      ]
+      st.dataframe(disp_bank_df, use_container_width=True)
+    else:
+      col_bk1, col_bk2, col_bk3 = st.columns(3)
+      col_bk1.metric("Opening Balance", f"Rs {b_opn_val:,.2f}")
+      col_bk2.metric("Total Transactions", "Rs 0.00")
+      col_bk3.metric("Current Balance", f"Rs {b_opn_val:,.2f}")
+      st.info("इस बैंक खाते से संबंधित कोई लेनदेन डेटा नहीं मिला है।")
+
+    st.markdown("---")
+    with st.expander("⚙️ बैंक खाते का नाम या ओपनिंग बैलेंस एडिट करें"):
+      selected_bank_to_edit = st.selectbox(
+          "Choose Bank to Modify", bank_names_list, key="edit_bank_sel"
+      )
+      cursor.execute(
+          "SELECT account_number, opening_balance FROM bank_accounts WHERE"
+          " bank_name = ?",
+          (selected_bank_to_edit,),
+      )
+      curr_acc, curr_b_opn = cursor.fetchone()
+
+      with st.form("update_bank_form", clear_on_submit=True):
+        up_acc_num = st.text_input("Account Number", value=str(curr_acc))
+        up_b_opn = st.number_input(
+            "Opening Balance (Rs)",
+            min_value=0.0,
+            format="%.2f",
+            value=float(curr_b_opn),
+        )
+        up_bank_btn = st.form_submit_button("Update Bank Details")
+
+        if up_bank_btn:
+          cursor.execute(
+              "UPDATE bank_accounts SET account_number = ?, opening_balance = ?"
+              " WHERE bank_name = ?",
+              (up_acc_num, up_b_opn, selected_bank_to_edit),
+          )
+          conn.commit()
+          success_ph = st.empty()
+          success_ph.success("🎉 बैंक विवरण सफलतापूर्वक अपडेट हो गया!")
+          time.sleep(1.5)
+          success_ph.empty()
+          st.rerun()
+  else:
+    st.info("कोई बैंक खाता दर्ज नहीं है।")
+
+# ----------------- 7. MANAGE LOANS & LIC (RECURRING PAYMENTS) -----------------
 elif choice == "Manage Loans & LIC":
   st.subheader(
       "🏦 लोन और LIC / वार्षिक भुगतान मैनेजर (Loans & LIC Date Manager)"
@@ -1641,7 +1860,7 @@ elif choice == "Manage Loans & LIC":
             "DELETE FROM recurring_payments WHERE id = ?", (del_rec_id,)
         )
         conn.commit()
-        success_ph.empty()
+        success_ph = st.empty()
         success_ph.success(f"ID {del_rec_id} सफलतापूर्वक हटा दिया गया!")
         time.sleep(1.5)
         success_ph.empty()
@@ -1649,7 +1868,7 @@ elif choice == "Manage Loans & LIC":
   else:
     st.info("कोई लोन या LIC दर्ज नहीं है।")
 
-# ----------------- 7. MANAGE CATEGORIES (DYNAMIC TYPES & SUB-CATEGORIES) -----------------
+# ----------------- 8. MANAGE CATEGORIES (DYNAMIC TYPES & SUB-CATEGORIES) -----------------
 elif choice == "Manage Categories":
   st.subheader(
       "🏷️ मेनू और सब-कैटेगरी मैनेजर (Dynamic Menu & Sub-Category Manager)"
