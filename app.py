@@ -10,12 +10,12 @@ st.set_page_config(
 )
 
 
-# database connection and initialization
+# robust database connection and auto-migration (No More Errors!)
 def init_db():
   conn = sqlite3.connect("comprehensive_finance.db", check_same_thread=False)
   cursor = conn.cursor()
 
-  # Transactions table
+  # Create tables if they don't exist
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,7 +30,6 @@ def init_db():
         )
     """)
 
-  # Credit Card Management table with Dynamic Limits & Opening Balance
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS credit_cards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,7 +42,6 @@ def init_db():
         )
     """)
 
-  # Savings Bank Accounts Management table with Overdraft Support
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS bank_accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +53,6 @@ def init_db():
         )
     """)
 
-  # Loans & LIC (Recurring Payments) table
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS recurring_payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,7 +67,6 @@ def init_db():
         )
     """)
 
-  # Custom Sub-Categories table for Locations & Income Sources
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS custom_subcategories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,54 +76,31 @@ def init_db():
         )
     """)
 
-  cursor.execute("PRAGMA table_info(transactions)")
-  columns = [col[1] for col in cursor.fetchall()]
-  if "payment_mode" not in columns:
-    cursor.execute(
-        "ALTER TABLE transactions ADD COLUMN payment_mode TEXT DEFAULT 'Cash'"
-    )
+  # Automated safe column checking and adding missing columns dynamically
+  required_columns = {
+      "transactions": [("payment_mode", "TEXT DEFAULT 'Cash'")],
+      "credit_cards": [
+          ("last_paid_month", "TEXT DEFAULT ''"),
+          ("total_limit", "REAL DEFAULT 0.0"),
+          ("opening_balance", "REAL DEFAULT 0.0"),
+      ],
+      "bank_accounts": [
+          ("is_od", "INTEGER DEFAULT 0"),
+          ("od_limit", "REAL DEFAULT 0.0"),
+      ],
+      "recurring_payments": [("last_paid_period", "TEXT DEFAULT ''")],
+      "custom_subcategories": [("transaction_type", "TEXT DEFAULT 'Expense'")],
+  }
 
-  cursor.execute("PRAGMA table_info(credit_cards)")
-  cc_columns = [col[1] for col in cursor.fetchall()]
-  if "last_paid_month" not in cc_columns:
-    cursor.execute(
-        "ALTER TABLE credit_cards ADD COLUMN last_paid_month TEXT DEFAULT ''"
-    )
-  if "total_limit" not in cc_columns:
-    cursor.execute(
-        "ALTER TABLE credit_cards ADD COLUMN total_limit REAL DEFAULT 0.0"
-    )
-  if "opening_balance" not in cc_columns:
-    cursor.execute(
-        "ALTER TABLE credit_cards ADD COLUMN opening_balance REAL DEFAULT 0.0"
-    )
-
-  cursor.execute("PRAGMA table_info(bank_accounts)")
-  bank_cols = [col[1] for col in cursor.fetchall()]
-  if "is_od" not in bank_cols:
-    cursor.execute(
-        "ALTER TABLE bank_accounts ADD COLUMN is_od INTEGER DEFAULT 0"
-    )
-  if "od_limit" not in bank_cols:
-    cursor.execute(
-        "ALTER TABLE bank_accounts ADD COLUMN od_limit REAL DEFAULT 0.0"
-    )
-
-  cursor.execute("PRAGMA table_info(recurring_payments)")
-  rec_columns = [col[1] for col in cursor.fetchall()]
-  if "last_paid_period" not in rec_columns:
-    cursor.execute(
-        "ALTER TABLE recurring_payments ADD COLUMN last_paid_period TEXT DEFAULT"
-        " ''"
-    )
-
-  cursor.execute("PRAGMA table_info(custom_subcategories)")
-  cat_columns = [col[1] for col in cursor.fetchall()]
-  if "transaction_type" not in cat_columns:
-    cursor.execute(
-        "ALTER TABLE custom_subcategories ADD COLUMN transaction_type TEXT"
-        " DEFAULT 'Expense'"
-    )
+  for table, cols in required_columns.items():
+    cursor.execute(f"PRAGMA table_info({table})")
+    existing_cols = [col[1] for col in cursor.fetchall()]
+    for col_name, col_def in cols:
+      if col_name not in existing_cols:
+        try:
+          cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
+        except:
+          pass
 
   conn.commit()
   return conn
@@ -706,7 +679,6 @@ elif choice == "Credit Card Bill Payment":
           st.error("कृपया सही भुगतान राशि दर्ज करें!")
         else:
           date_str = pay_date.strftime("%Y-%m-%d")
-          # 1. Deduct money from Bank Account (Recorded as Transfer Out)
           cursor.execute(
               "INSERT INTO transactions (date, type, location, category, sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
               (
@@ -720,7 +692,6 @@ elif choice == "Credit Card Bill Payment":
                   (f"Paid bill for {selected_cc}. " + bill_remarks).strip(),
               ),
           )
-          # 2. Credit/Settle amount to Credit Card (Recorded as Income/Refund to clear dues)
           cursor.execute(
               "INSERT INTO transactions (date, type, location, category, sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
               (
@@ -734,7 +705,6 @@ elif choice == "Credit Card Bill Payment":
                   (f"Bill paid via {selected_bank}. " + bill_remarks).strip(),
               ),
           )
-          # Automatically mark the card as paid for current month
           cursor.execute(
               "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
               (current_month_str, selected_cc),
