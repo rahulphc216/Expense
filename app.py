@@ -76,7 +76,6 @@ def init_db():
         )
     """)
 
-  # Safe column additions
   migrations = [
       ("ALTER TABLE transactions ADD COLUMN payment_mode TEXT DEFAULT 'Cash'", "transactions"),
       ("ALTER TABLE credit_cards ADD COLUMN last_paid_month TEXT DEFAULT ''", "credit_cards"),
@@ -323,7 +322,7 @@ current_year = today.year
 current_month_str = today.strftime("%Y-%m")
 current_year_str = str(current_year)
 
-# ----------------- SAFE SMART ALERTS WITH ERROR TRY-EXCEPT -----------------
+# ----------------- SMART ALERTS WITH SAFEGUARDS -----------------
 try:
   cursor.execute(
       "SELECT payment_mode FROM transactions WHERE date LIKE ?",
@@ -334,44 +333,49 @@ try:
   for (t_mode,) in trans_rows:
     if t_mode and t_mode.startswith("CC:"):
       card_n = t_mode.replace("CC: ", "").strip()
-      cursor.execute(
-          "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
-          (current_month_str, card_n),
-      )
+      try:
+        cursor.execute(
+            "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
+            (current_month_str, card_n),
+        )
+      except:
+        pass
   conn.commit()
 except:
   pass
 
-cursor.execute(
-    "SELECT sub_category, remarks, amount FROM transactions WHERE date LIKE ?",
-    (f"{current_month_str}%",),
-)
-all_trans = cursor.fetchall()
+try:
+  cursor.execute(
+      "SELECT sub_category, remarks, amount FROM transactions WHERE date LIKE ?",
+      (f"{current_month_str}%",),
+  )
+  all_trans = cursor.fetchall()
 
-cursor.execute(
-    "SELECT id, item_name, frequency, due_month FROM recurring_payments"
-)
-rec_items = cursor.fetchall()
+  cursor.execute(
+      "SELECT id, item_name, frequency, due_month FROM recurring_payments"
+  )
+  rec_items = cursor.fetchall()
 
-for r_id, i_name, freq, d_mon in rec_items:
-  paid_matched = False
-  for sub_c, rem, amt in all_trans:
-    if (i_name.lower() in str(sub_c).lower()) or (
-        i_name.lower() in str(rem).lower()
-    ):
-      paid_matched = True
-      break
+  for r_id, i_name, freq, d_mon in rec_items:
+    paid_matched = False
+    for sub_c, rem, amt in all_trans:
+      if (i_name.lower() in str(sub_c).lower()) or (
+          i_name.lower() in str(rem).lower()
+      ):
+        paid_matched = True
+        break
 
-  if paid_matched:
-    paid_period_val = (
-        current_month_str if freq == "Monthly" else current_year_str
-    )
-    cursor.execute(
-        "UPDATE recurring_payments SET last_paid_period = ? WHERE id = ?",
-        (paid_period_val, r_id),
-    )
-
-conn.commit()
+    if paid_matched:
+      paid_period_val = (
+          current_month_str if freq == "Monthly" else current_year_str
+      )
+      cursor.execute(
+          "UPDATE recurring_payments SET last_paid_period = ? WHERE id = ?",
+          (paid_period_val, r_id),
+      )
+  conn.commit()
+except:
+  pass
 
 cursor.execute(
     "SELECT payment_mode, amount FROM transactions WHERE date LIKE ? AND"
@@ -384,8 +388,11 @@ for p_mode, amt in cc_trans:
   c_name = p_mode.replace("CC: ", "").strip()
   card_spent_map[c_name] = card_spent_map.get(c_name, 0.0) + amt
 
-cursor.execute("SELECT card_name, due_date, last_paid_month FROM credit_cards")
-all_cards_for_alert = cursor.fetchall()
+try:
+  cursor.execute("SELECT card_name, due_date, last_paid_month FROM credit_cards")
+  all_cards_for_alert = cursor.fetchall()
+except:
+  all_cards_for_alert = []
 
 alerts = []
 for c_name, d_date, l_paid in all_cards_for_alert:
@@ -412,11 +419,14 @@ for c_name, d_date, l_paid in all_cards_for_alert:
   except:
     pass
 
-cursor.execute(
-    "SELECT id, item_name, payment_type, amount, frequency, due_day,"
-    " due_month, payment_mode, last_paid_period FROM recurring_payments"
-)
-rec_payments = cursor.fetchall()
+try:
+  cursor.execute(
+      "SELECT id, item_name, payment_type, amount, frequency, due_day,"
+      " due_month, payment_mode, last_paid_period FROM recurring_payments"
+  )
+  rec_payments = cursor.fetchall()
+except:
+  rec_payments = []
 
 for r_id, item_name, p_type, amt, freq, d_day, d_mon, p_mode, l_paid_per in (
     rec_payments
@@ -1664,7 +1674,7 @@ elif choice == "Manage Credit Cards":
   else:
     st.info("कोई क्रेडिट कार्ड दर्ज नहीं है।")
 
-# ----------------- 6. MANAGE SAVINGS BANK ACCOUNTS (WITH CORRECT OD NET BALANCE LOGIC) -----------------
+# ----------------- 6. MANAGE SAVINGS BANK ACCOUNTS -----------------
 elif choice == "Manage Bank Accounts":
   st.subheader("🏦 सेविंग्स बैंक अकाउंट और PNB OD मैनेजर (Bank & OD Ledger)")
   st.write(
@@ -1901,7 +1911,7 @@ elif choice == "Manage Bank Accounts":
   else:
     st.info("कोई बैंक खाता दर्ज नहीं है। कृपया नया बैंक खाता जोड़ें।")
 
-# ----------------- 7. MANAGE LOANS & LIC (RECURRING PAYMENTS) -----------------
+# ----------------- 7. MANAGE LOANS & LIC -----------------
 elif choice == "Manage Loans & LIC":
   st.subheader(
       "🏦 लोन और LIC / वार्षिक भुगतान मैनेजर (Loans & LIC Date Manager)"
@@ -2095,7 +2105,7 @@ elif choice == "Manage Loans & LIC":
   else:
     st.info("कोई लोन या LIC दर्ज नहीं है।")
 
-# ----------------- 8. MANAGE CATEGORIES (DYNAMIC TYPES & SUB-CATEGORIES) -----------------
+# ----------------- 8. MANAGE CATEGORIES -----------------
 elif choice == "Manage Categories":
   st.subheader(
       "🏷️ मेनू और सब-कैटेगरी मैनेजर (Dynamic Menu & Sub-Category Manager)"
@@ -2108,12 +2118,10 @@ elif choice == "Manage Categories":
   with st.expander("➕ नई कैटेगरी जोड़ें (Click to Open)"):
     with st.form("add_cat_form", clear_on_submit=True):
       sel_type = st.selectbox("Select Transaction Type", ["Expense", "Income"])
-
       current_locs = get_locations_for_type(cursor, sel_type)
       sel_loc = st.selectbox("Select Main Menu / Location", current_locs)
-
       new_sub_name = st.text_input(
-          "New Sub-Category / Item Name (जैसे: Bonus, Fuel, Rent...)"
+          "New Sub-Category / Item Name (जैसे: Mobile Recharge)"
       )
       add_cat_btn = st.form_submit_button("Add Sub-Category / Item")
 
@@ -2128,48 +2136,27 @@ elif choice == "Manage Categories":
             conn.commit()
             success_ph = st.empty()
             success_ph.success(
-                f"'{new_sub_name.strip()}' को [{sel_type} -> {sel_loc}] के अंतर्गत"
-                " सफलतापूर्वक जोड़ दिया गया है!"
+                f"'{new_sub_name.strip()}' को [{sel_loc}] के अंतर्गत सफलतापूर्वक"
+                " जोड़ दिया गया है!"
             )
             time.sleep(1.5)
             success_ph.empty()
             st.rerun()
           except:
-            st.error(
-                "यह सब-कैटेगरी पहले से इस लोकेशन या मेनू में मौजूद है!"
-            )
+            st.error("यह सब-कैटेगरी पहले से इस लोकेशन में मौजूद है!")
         else:
-          st.error("कृपया सब-कैटेगरी का नाम दर्ज करें!")
+          st.error("कृपया नाम दर्ज करें!")
 
   cursor.execute(
       "SELECT id, transaction_type, location, sub_category_name FROM"
       " custom_subcategories"
   )
   cat_records = cursor.fetchall()
-
   if cat_records:
-    st.markdown("### 📋 आपके द्वारा जोड़ी गई कस्टम कैटेगरी की सूचियाँ")
     cat_df = pd.DataFrame(
         cat_records,
-        columns=["ID", "Type", "Main Menu / Location", "Sub-Category Name"],
+        columns=["ID", "Type", "Location", "Sub-Category Name"],
     )
     st.dataframe(cat_df, use_container_width=True)
-
-    st.markdown("---")
-    st.markdown("### 🗑️ कोई कस्टम कैटेगरी हटाएं")
-    del_cat_id = st.number_input(
-        "Enter ID to Delete Category", min_value=0, step=1, key="del_cat"
-    )
-    if st.button("Delete Category", key="del_cat_btn"):
-      if del_cat_id > 0:
-        cursor.execute(
-            "DELETE FROM custom_subcategories WHERE id = ?", (del_cat_id,)
-        )
-        conn.commit()
-        success_ph = st.empty()
-        success_ph.success(f"ID {del_cat_id} सफलतापूर्वक हटा दिया गया!")
-        time.sleep(1.5)
-        success_ph.empty()
-        st.rerun()
   else:
     st.info("अभी कोई नई कस्टम कैटेगरी नहीं जोड़ी गई है।")
