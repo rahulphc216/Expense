@@ -4,8 +4,8 @@ from datetime import datetime, date, timedelta
 
 st.set_page_config(page_title="Personal Finance Manager", layout="wide")
 
-# --- Current Date Setup (Native Python) ---
-current_ist_date = date.today()
+# --- Accurate IST Date Setup (Server independent) ---
+current_ist_date = (datetime.utcnow() + timedelta(hours=5, minutes=30)).date()
 
 # --- Initialize Session State ---
 if "banks" not in st.session_state:
@@ -156,18 +156,21 @@ elif menu == "Master Settings":
     tab1, tab2, tab3, tab4 = st.tabs(["Bank Accounts", "Credit Cards", "LIC / Loans", "Location Submenus"])
     
     with tab1:
-        st.subheader("Manage Bank Accounts (Multiple Banks & OD Accounts)")
-        with st.form("add_bank_form"):
-            b_name = st.text_input("Bank Name")
-            b_type = st.selectbox("Account Type", ["Saving", "Current/OD"])
-            b_open = st.number_input("Opening/Current Balance", value=0.0, format="%.2f")
-            is_od = st.checkbox("Is this an OD Account?")
-            od_limit = st.number_input("OD Limit (if applicable)", value=0.0, format="%.2f")
-            submitted_b = st.form_submit_button("Add Bank")
-            if submitted_b and b_name:
-                new_row = {"Bank Name": b_name, "Account Type": b_type, "Opening Balance": b_open, "Current Balance": b_open, "Is OD": is_od, "OD Limit": od_limit if is_od else 0.0}
-                st.session_state.banks = pd.concat([st.session_state.banks, pd.DataFrame([new_row])], ignore_index=True)
-                st.success(f"Bank {b_name} added successfully!")
+        st.subheader("Manage Bank Accounts")
+        
+        # Hidden collapsible add window
+        with st.expander("➕ Click here to Add New Bank Account"):
+            with st.form("add_bank_form"):
+                b_name = st.text_input("Bank Name")
+                b_type = st.selectbox("Account Type", ["Saving", "Current/OD"])
+                b_open = st.number_input("Opening/Current Balance", value=0.0, format="%.2f")
+                is_od = st.checkbox("Is this an OD Account?")
+                od_limit = st.number_input("OD Limit (if applicable)", value=0.0, format="%.2f")
+                submitted_b = st.form_submit_button("Save Bank")
+                if submitted_b and b_name:
+                    new_row = {"Bank Name": b_name, "Account Type": b_type, "Opening Balance": b_open, "Current Balance": b_open, "Is OD": is_od, "OD Limit": od_limit if is_od else 0.0}
+                    st.session_state.banks = pd.concat([st.session_state.banks, pd.DataFrame([new_row])], ignore_index=True)
+                    st.success(f"Bank {b_name} added successfully!")
         
         st.write("### Existing Banks")
         if not st.session_state.banks.empty:
@@ -181,18 +184,21 @@ elif menu == "Master Settings":
                 st.rerun()
 
     with tab2:
-        st.subheader("Manage Credit Cards (10+ Cards Support)")
-        with st.form("add_card_form"):
-            c_name = st.text_input("Credit Card Name")
-            c_limit = st.number_input("Total Limit", value=50000.0)
-            c_open = st.number_input("Current Used Amount", value=0.0)
-            c_bill = st.number_input("Billing Date (Day of month)", min_value=1, max_value=31, value=1)
-            c_due = st.date_input("Due Date", value=current_ist_date)
-            submitted_c = st.form_submit_button("Add Credit Card")
-            if submitted_c and c_name:
-                new_card = {"Card Name": c_name, "Total Limit": c_limit, "Opening Balance": c_open, "Current Limit": c_limit - c_open, "Billing Date": c_bill, "Due Date": c_due}
-                st.session_state.cards = pd.concat([st.session_state.cards, pd.DataFrame([new_card])], ignore_index=True)
-                st.success(f"Credit Card {c_name} added successfully!")
+        st.subheader("Manage Credit Cards")
+        
+        # Hidden collapsible add window
+        with st.expander("➕ Click here to Add New Credit Card"):
+            with st.form("add_card_form"):
+                c_name = st.text_input("Credit Card Name")
+                c_limit = st.number_input("Total Limit", value=50000.0)
+                c_open = st.number_input("Current Used Amount", value=0.0)
+                c_bill = st.number_input("Billing Date (Day of month)", min_value=1, max_value=31, value=1)
+                c_due = st.date_input("Due Date", value=current_ist_date)
+                submitted_c = st.form_submit_button("Save Credit Card")
+                if submitted_c and c_name:
+                    new_card = {"Card Name": c_name, "Total Limit": c_limit, "Opening Balance": c_open, "Current Limit": c_limit - c_open, "Billing Date": c_bill, "Due Date": c_due}
+                    st.session_state.cards = pd.concat([st.session_state.cards, pd.DataFrame([new_card])], ignore_index=True)
+                    st.success(f"Credit Card {c_name} added successfully!")
         
         st.write("### Existing Credit Cards")
         if not st.session_state.cards.empty:
@@ -204,17 +210,20 @@ elif menu == "Master Settings":
 
     with tab3:
         st.subheader("Manage LIC Policies & Loans")
-        with st.form("add_lic_loan_form"):
-            ll_name = st.text_input("Name / Policy Number / Loan Title")
-            ll_type = st.selectbox("Type", ["LIC Policy", "Loan"])
-            ll_amount = st.number_input("Total Amount / Sum Assured / Loan Amount", value=100000.0)
-            ll_due = st.date_input("Next Premium / Due Date", value=current_ist_date)
-            ll_installment = st.number_input("Installment / Premium Amount", value=5000.0)
-            submitted_ll = st.form_submit_button("Add LIC / Loan")
-            if submitted_ll and ll_name:
-                new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Due Date": ll_due, "Installment / Premium": ll_installment}
-                st.session_state.lic_loans = pd.concat([st.session_state.lic_loans, pd.DataFrame([new_ll])], ignore_index=True)
-                st.success(f"{ll_type} added successfully!")
+        
+        # Hidden collapsible add window
+        with st.expander("➕ Click here to Add New LIC / Loan"):
+            with st.form("add_lic_loan_form"):
+                ll_name = st.text_input("Name / Policy Number / Loan Title")
+                ll_type = st.selectbox("Type", ["LIC Policy", "Loan"])
+                ll_amount = st.number_input("Total Amount / Sum Assured / Loan Amount", value=100000.0)
+                ll_due = st.date_input("Next Premium / Due Date", value=current_ist_date)
+                ll_installment = st.number_input("Installment / Premium Amount", value=5000.0)
+                submitted_ll = st.form_submit_button("Save LIC / Loan")
+                if submitted_ll and ll_name:
+                    new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Due Date": ll_due, "Installment / Premium": ll_installment}
+                    st.session_state.lic_loans = pd.concat([st.session_state.lic_loans, pd.DataFrame([new_ll])], ignore_index=True)
+                    st.success(f"{ll_type} added successfully!")
         
         st.write("### Existing LIC & Loans")
         if not st.session_state.lic_loans.empty:
@@ -228,12 +237,15 @@ elif menu == "Master Settings":
         st.subheader("Manage Location Submenus")
         loc_choice = st.selectbox("Select Location", ["Patna", "Barhiya", "Lakhisarai", "Others"])
         
-        new_sub = st.text_input("New Submenu Name")
-        if st.button("Add Submenu"):
-            if new_sub:
-                st.session_state.submenus[loc_choice].append(new_sub)
-                st.success(f"Added '{new_sub}' to {loc_choice}!")
-                st.rerun()
+        # Hidden collapsible add window
+        with st.expander("➕ Click here to Add New Submenu"):
+            with st.form("add_sub_form"):
+                new_sub = st.text_input("New Submenu Name")
+                submitted_sub = st.form_submit_button("Save Submenu")
+                if submitted_sub and new_sub:
+                    st.session_state.submenus[loc_choice].append(new_sub)
+                    st.success(f"Added '{new_sub}' to {loc_choice}!")
+                    st.rerun()
         
         st.write(f"Current Submenus in **{loc_choice}**:", st.session_state.submenus[loc_choice])
         if st.session_state.submenus[loc_choice]:
