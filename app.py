@@ -4,10 +4,10 @@ from datetime import datetime, date, timedelta
 
 st.set_page_config(page_title="Personal Finance Manager", layout="wide")
 
-# --- Accurate IST Date Setup (Server independent) ---
+# --- Accurate IST Date Setup ---
 current_ist_date = (datetime.utcnow() + timedelta(hours=5, minutes=30)).date()
 
-# --- Initialize Session State ---
+# --- Initialize Session State (Persistent check) ---
 if "banks" not in st.session_state:
     st.session_state.banks = pd.DataFrame(columns=["Bank Name", "Account Type", "Opening Balance", "Current Balance", "Is OD", "OD Limit"])
     st.session_state.banks.loc[0] = ["PNB", "Current/OD", 66634.72, 66634.72, True, 211000.0]
@@ -40,36 +40,43 @@ def get_bank_net_balance(row):
 st.sidebar.title("Finance Manager")
 menu = st.sidebar.selectbox("Navigation", ["Add Expense", "Dashboard", "Master Settings", "Add Income", "Special Transactions", "Reports"])
 
-# ==================== 1. ADD EXPENSE (Default Home Window) ====================
+# ==================== 1. ADD EXPENSE (Dynamic UI without Form) ====================
 if menu == "Add Expense":
     st.header("📉 Add Expense")
     
-    with st.form("expense_form"):
-        exp_date = st.date_input("Date", value=current_ist_date)
-        location = st.selectbox("Location", ["Patna", "Barhiya", "Lakhisarai", "Others"])
-        available_subs = st.session_state.submenus.get(location, ["General"])
-        submenu = st.selectbox("Submenu Category", available_subs)
-        
-        mode = st.selectbox("Payment Mode", ["Cash", "Credit Card", "Saving Bank Account"])
-        
-        account_or_card = None
-        if mode == "Credit Card":
-            if not st.session_state.cards.empty:
-                account_or_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"])
-            else:
-                st.warning("Please add a credit card first in Master Settings.")
-        elif mode == "Saving Bank Account":
-            if not st.session_state.banks.empty:
-                account_or_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"])
-            else:
-                st.warning("Please add a bank account first in Master Settings.")
-                
-        amount = st.number_input("Amount", min_value=1.0, value=100.0)
-        note = st.text_input("Note / Description")
-        
-        submitted_exp = st.form_submit_button("Save Expense")
-        
-        if submitted_exp:
+    exp_date = st.date_input("Date", value=current_ist_date, key="exp_date_input")
+    location = st.selectbox("Location", ["Patna", "Barhiya", "Lakhisarai", "Others"], key="exp_loc_input")
+    
+    available_subs = st.session_state.submenus.get(location, ["General"])
+    submenu = st.selectbox("Submenu Category", available_subs, key="exp_sub_input")
+    
+    mode = st.selectbox("Payment Mode", ["Cash", "Credit Card", "Saving Bank Account"], key="exp_mode_input")
+    
+    account_or_card = None
+    if mode == "Credit Card":
+        if not st.session_state.cards.empty:
+            account_or_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="exp_cc_input")
+        else:
+            st.warning("Please add a credit card first in Master Settings.")
+    elif mode == "Saving Bank Account":
+        if not st.session_state.banks.empty:
+            account_or_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="exp_bank_input")
+        else:
+            st.warning("Please add a bank account first in Master Settings.")
+            
+    amount = st.number_input("Amount", min_value=1.0, value=100.0, key="exp_amt_input")
+    note = st.text_input("Note / Description", key="exp_note_input")
+    
+    if st.button("Save Expense"):
+        can_save = True
+        if mode == "Credit Card" and not account_or_card:
+            can_save = False
+            st.error("Please select a valid Credit Card.")
+        elif mode == "Saving Bank Account" and not account_or_card:
+            can_save = False
+            st.error("Please select a valid Bank Account.")
+            
+        if can_save:
             if mode == "Credit Card" and account_or_card:
                 idx = st.session_state.cards[st.session_state.cards["Card Name"] == account_or_card].index[0]
                 st.session_state.cards.loc[idx, "Current Limit"] -= amount
@@ -166,9 +173,12 @@ elif menu == "Master Settings":
                 od_limit = st.number_input("OD Limit (if applicable)", value=0.0, format="%.2f")
                 submitted_b = st.form_submit_button("Save Bank")
                 if submitted_b and b_name:
-                    new_row = {"Bank Name": b_name, "Account Type": b_type, "Opening Balance": b_open, "Current Balance": b_open, "Is OD": is_od, "OD Limit": od_limit if is_od else 0.0}
-                    st.session_state.banks = pd.concat([st.session_state.banks, pd.DataFrame([new_row])], ignore_index=True)
-                    st.success(f"Bank {b_name} added successfully!")
+                    if b_name not in st.session_state.banks["Bank Name"].values:
+                        new_row = {"Bank Name": b_name, "Account Type": b_type, "Opening Balance": b_open, "Current Balance": b_open, "Is OD": is_od, "OD Limit": od_limit if is_od else 0.0}
+                        st.session_state.banks = pd.concat([st.session_state.banks, pd.DataFrame([new_row])], ignore_index=True)
+                        st.success(f"Bank {b_name} added successfully!")
+                    else:
+                        st.warning("Bank already exists!")
         
         st.write("### Existing Banks")
         if not st.session_state.banks.empty:
@@ -176,7 +186,7 @@ elif menu == "Master Settings":
             b_display["Net Balance"] = b_display.apply(get_bank_net_balance, axis=1)
             st.dataframe(b_display)
             
-            del_bank = st.selectbox("Select Bank to Delete", st.session_state.banks["Bank Name"])
+            del_bank = st.selectbox("Select Bank to Delete", st.session_state.banks["Bank Name"], key="del_bank_sel")
             if st.button("Delete Bank"):
                 st.session_state.banks = st.session_state.banks[st.session_state.banks["Bank Name"] != del_bank]
                 st.rerun()
@@ -192,14 +202,17 @@ elif menu == "Master Settings":
                 c_due = st.date_input("Due Date", value=current_ist_date)
                 submitted_c = st.form_submit_button("Save Credit Card")
                 if submitted_c and c_name:
-                    new_card = {"Card Name": c_name, "Total Limit": c_limit, "Opening Balance": c_open, "Current Limit": c_limit - c_open, "Billing Date": c_bill, "Due Date": c_due}
-                    st.session_state.cards = pd.concat([st.session_state.cards, pd.DataFrame([new_card])], ignore_index=True)
-                    st.success(f"Credit Card {c_name} added successfully!")
+                    if c_name not in st.session_state.cards["Card Name"].values:
+                        new_card = {"Card Name": c_name, "Total Limit": c_limit, "Opening Balance": c_open, "Current Limit": c_limit - c_open, "Billing Date": c_bill, "Due Date": c_due}
+                        st.session_state.cards = pd.concat([st.session_state.cards, pd.DataFrame([new_card])], ignore_index=True)
+                        st.success(f"Credit Card {c_name} added successfully!")
+                    else:
+                        st.warning("Credit Card already exists!")
         
         st.write("### Existing Credit Cards")
         if not st.session_state.cards.empty:
             st.dataframe(st.session_state.cards)
-            del_card = st.selectbox("Select Card to Delete", st.session_state.cards["Card Name"])
+            del_card = st.selectbox("Select Card to Delete", st.session_state.cards["Card Name"], key="del_card_sel")
             if st.button("Delete Credit Card"):
                 st.session_state.cards = st.session_state.cards[st.session_state.cards["Card Name"] != del_card]
                 st.rerun()
@@ -215,9 +228,12 @@ elif menu == "Master Settings":
                 ll_installment = st.number_input("Installment / Premium Amount", value=5000.0)
                 submitted_ll = st.form_submit_button("Save LIC / Loan")
                 if submitted_ll and ll_name:
-                    new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Due Date": ll_due, "Installment / Premium": ll_installment}
-                    st.session_state.lic_loans = pd.concat([st.session_state.lic_loans, pd.DataFrame([new_ll])], ignore_index=True)
-                    st.success(f"{ll_type} added successfully!")
+                    if ll_name not in st.session_state.lic_loans["Name / Policy No"].values:
+                        new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Due Date": ll_due, "Installment / Premium": ll_installment}
+                        st.session_state.lic_loans = pd.concat([st.session_state.lic_loans, pd.DataFrame([new_ll])], ignore_index=True)
+                        st.success(f"{ll_type} added successfully!")
+                    else:
+                        st.warning("LIC/Loan entry already exists!")
         
         st.write("### Existing LIC & Loans")
         if not st.session_state.lic_loans.empty:
@@ -229,15 +245,18 @@ elif menu == "Master Settings":
 
     with tab4:
         st.subheader("Manage Location Submenus")
-        loc_choice = st.selectbox("Select Location", ["Patna", "Barhiya", "Lakhisarai", "Others"])
+        loc_choice = st.selectbox("Select Location", ["Patna", "Barhiya", "Lakhisarai", "Others"], key="loc_sub_sel")
         with st.expander("➕ Click here to Add New Submenu"):
             with st.form("add_sub_form"):
                 new_sub = st.text_input("New Submenu Name")
                 submitted_sub = st.form_submit_button("Save Submenu")
                 if submitted_sub and new_sub:
-                    st.session_state.submenus[loc_choice].append(new_sub)
-                    st.success(f"Added '{new_sub}' to {loc_choice}!")
-                    st.rerun()
+                    if new_sub not in st.session_state.submenus[loc_choice]:
+                        st.session_state.submenus[loc_choice].append(new_sub)
+                        st.success(f"Added '{new_sub}' to {loc_choice}!")
+                        st.rerun()
+                    else:
+                        st.warning("Submenu already exists in this location!")
         
         st.write(f"Current Submenus in **{loc_choice}**:", st.session_state.submenus[loc_choice])
         if st.session_state.submenus[loc_choice]:
@@ -246,29 +265,39 @@ elif menu == "Master Settings":
                 st.session_state.submenus[loc_choice].remove(sub_to_del)
                 st.rerun()
 
-# ==================== 4. ADD INCOME ====================
+# ==================== 4. ADD INCOME (Dynamic UI without Form) ====================
 elif menu == "Add Income":
     st.header("📈 Add Income")
     
-    with st.form("income_form"):
-        inc_date = st.date_input("Date", value=current_ist_date)
-        inc_source = st.selectbox("Income Source", ["Salary", "Advocate", "Refund from Online Platform", "Other"])
-        mode = st.selectbox("Receive Mode", ["Cash", "Credit Card (Refund)", "Saving Bank Account"])
-        
-        account_or_card = None
-        if mode == "Credit Card (Refund)":
-            if not st.session_state.cards.empty:
-                account_or_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"])
-        elif mode == "Saving Bank Account":
-            if not st.session_state.banks.empty:
-                account_or_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"])
-                
-        amount = st.number_input("Amount", min_value=1.0, value=1000.0)
-        note = st.text_input("Note / Description")
-        
-        submitted_inc = st.form_submit_button("Save Income")
-        
-        if submitted_inc:
+    inc_date = st.date_input("Date", value=current_ist_date, key="inc_date_input")
+    inc_source = st.selectbox("Income Source", ["Salary", "Advocate", "Refund from Online Platform", "Other"], key="inc_source_input")
+    mode = st.selectbox("Receive Mode", ["Cash", "Credit Card (Refund)", "Saving Bank Account"], key="inc_mode_input")
+    
+    account_or_card = None
+    if mode == "Credit Card (Refund)":
+        if not st.session_state.cards.empty:
+            account_or_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="inc_cc_input")
+        else:
+            st.warning("Please add a credit card first in Master Settings.")
+    elif mode == "Saving Bank Account":
+        if not st.session_state.banks.empty:
+            account_or_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="inc_bank_input")
+        else:
+            st.warning("Please add a bank account first in Master Settings.")
+            
+    amount = st.number_input("Amount", min_value=1.0, value=1000.0, key="inc_amt_input")
+    note = st.text_input("Note / Description", key="inc_note_input")
+    
+    if st.button("Save Income"):
+        can_save = True
+        if mode == "Credit Card (Refund)" and not account_or_card:
+            can_save = False
+            st.error("Please select a valid Credit Card.")
+        elif mode == "Saving Bank Account" and not account_or_card:
+            can_save = False
+            st.error("Please select a valid Bank Account.")
+            
+        if can_save:
             if mode == "Credit Card (Refund)" and account_or_card:
                 idx = st.session_state.cards[st.session_state.cards["Card Name"] == account_or_card].index[0]
                 st.session_state.cards.loc[idx, "Current Limit"] += amount
