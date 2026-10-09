@@ -1738,7 +1738,7 @@ elif choice == "Manage Bank Accounts":
     bank_summary_list = []
     grand_bank_balance = 0.0
 
-        for b_id, b_name, b_acc, b_opn, b_is_od, b_od_lim in bank_records:
+     for b_id, b_name, b_acc, b_opn, b_is_od, b_od_lim in bank_records:
       # कुल क्रेडिट (Income या Self Transfer In या Credit Card Bill Payment In)
       cursor.execute(
           "SELECT SUM(amount) FROM transactions WHERE payment_mode = ? AND"
