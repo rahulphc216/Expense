@@ -10,12 +10,11 @@ st.set_page_config(
 )
 
 
-# robust database connection and migration
+# robust database connection and safe migration
 def init_db():
   conn = sqlite3.connect("comprehensive_finance.db", check_same_thread=False)
   cursor = conn.cursor()
 
-  # Create tables with all columns explicitly included to prevent missing column errors
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,7 +76,7 @@ def init_db():
         )
     """)
 
-  # Double safety check to add any missing columns if upgrading from an older version
+  # Safe column additions
   migrations = [
       ("ALTER TABLE transactions ADD COLUMN payment_mode TEXT DEFAULT 'Cash'", "transactions"),
       ("ALTER TABLE credit_cards ADD COLUMN last_paid_month TEXT DEFAULT ''", "credit_cards"),
@@ -324,20 +323,24 @@ current_year = today.year
 current_month_str = today.strftime("%Y-%m")
 current_year_str = str(current_year)
 
-# ----------------- SMART ALERTS WITH AUTO-DETECT FOR CC & LOANS/LIC -----------------
-cursor.execute(
-    "SELECT payment_mode FROM transactions WHERE date LIKE ?",
-    (f"{current_month_str}%",),
-)
-trans_rows = cursor.fetchall()
+# ----------------- SAFE SMART ALERTS WITH ERROR TRY-EXCEPT -----------------
+try:
+  cursor.execute(
+      "SELECT payment_mode FROM transactions WHERE date LIKE ?",
+      (f"{current_month_str}%",),
+  )
+  trans_rows = cursor.fetchall()
 
-for (t_mode,) in trans_rows:
-  if t_mode and t_mode.startswith("CC:"):
-    card_n = t_mode.replace("CC: ", "").strip()
-    cursor.execute(
-        "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
-        (current_month_str, card_n),
-    )
+  for (t_mode,) in trans_rows:
+    if t_mode and t_mode.startswith("CC:"):
+      card_n = t_mode.replace("CC: ", "").strip()
+      cursor.execute(
+          "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
+          (current_month_str, card_n),
+      )
+  conn.commit()
+except:
+  pass
 
 cursor.execute(
     "SELECT sub_category, remarks, amount FROM transactions WHERE date LIKE ?",
@@ -702,10 +705,13 @@ elif choice == "Credit Card Bill Payment":
                   (f"Bill paid via {selected_bank}. " + bill_remarks).strip(),
               ),
           )
-          cursor.execute(
-              "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
-              (current_month_str, selected_cc),
-          )
+          try:
+            cursor.execute(
+                "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
+                (current_month_str, selected_cc),
+            )
+          except:
+            pass
           conn.commit()
           success_ph = st.empty()
           success_ph.success("🎉 क्रेडिट कार्ड बिल भुगतान सफलतापूर्वक दर्ज हो गया!")
@@ -1639,11 +1645,14 @@ elif choice == "Manage Credit Cards":
     )
 
     if st.button("✅ Mark as Paid (भुगतान हो गया)"):
-      cursor.execute(
-          "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
-          (current_month_str, selected_card_to_pay),
-      )
-      conn.commit()
+      try:
+        cursor.execute(
+            "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
+            (current_month_str, selected_card_to_pay),
+        )
+        conn.commit()
+      except:
+        pass
       success_ph = st.empty()
       success_ph.success(
           f"🎉 कार्ड '{selected_card_to_pay}' को इस महीने के लिए Paid मार्क कर"
@@ -2126,7 +2135,9 @@ elif choice == "Manage Categories":
             success_ph.empty()
             st.rerun()
           except:
-            st.error("यह सब-कैटेगरी पहले से इस मेनू में मौजूद है!")
+            st.error(
+                "यह सब-कैटेगरी पहले से इस लोकेशन या मेनू में मौजूद है!"
+            )
         else:
           st.error("कृपया सब-कैटेगरी का नाम दर्ज करें!")
 
