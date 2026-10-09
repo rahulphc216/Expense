@@ -64,13 +64,6 @@ if "data_loaded" not in st.session_state:
         
     st.session_state.data_loaded = True
 
-if "toast_msg" not in st.session_state:
-    st.session_state.toast_msg = ""
-
-if st.session_state.toast_msg:
-    st.success(st.session_state.toast_msg)
-    st.session_state.toast_msg = ""
-
 # --- Accurate IST Date Setup ---
 current_ist_date = (datetime.utcnow() + timedelta(hours=5, minutes=30)).date()
 
@@ -136,8 +129,8 @@ if menu == "Add Expense":
             new_tx = {"Date": str(exp_date), "Type": "Expense", "Location": location, "Submenu": submenu, "Mode": mode, "Account/Card": account_or_card if account_or_card else "Cash", "Amount": amount, "Note": note}
             st.session_state.transactions = pd.concat([st.session_state.transactions, pd.DataFrame([new_tx])], ignore_index=True)
             save_data()
-            st.session_state.toast_msg = "✅ Expense recorded successfully!"
-            st.rerun()
+            st.success("✅ Expense recorded successfully! Action completed 100%.")
+            st.balloons()
 
 # ==================== 2. DASHBOARD ====================
 elif menu == "Dashboard":
@@ -247,8 +240,8 @@ elif menu == "Master Settings":
                         new_row = {"Bank Name": b_name, "Account Type": b_type, "Opening Balance": b_open, "Current Balance": b_open, "Is OD": is_od, "OD Limit": od_limit if is_od else 0.0}
                         st.session_state.banks = pd.concat([st.session_state.banks, pd.DataFrame([new_row])], ignore_index=True)
                         save_data()
-                        st.session_state.toast_msg = f"✅ Bank '{b_name}' added successfully!"
-                        st.rerun()
+                        st.success(f"✅ Bank '{b_name}' added successfully!")
+                        st.balloons()
                     else:
                         st.warning("Bank already exists!")
         
@@ -262,7 +255,7 @@ elif menu == "Master Settings":
             if st.button("Delete Bank"):
                 st.session_state.banks = st.session_state.banks[st.session_state.banks["Bank Name"] != del_bank]
                 save_data()
-                st.session_state.toast_msg = "✅ Bank deleted successfully!"
+                st.success("✅ Bank deleted successfully!")
                 st.rerun()
 
     with tab2:
@@ -280,8 +273,8 @@ elif menu == "Master Settings":
                         new_card = {"Card Name": c_name, "Total Limit": c_limit, "Opening Balance": c_open, "Current Limit": c_limit - c_open, "Billing Date": c_bill, "Due Date (Day)": c_due}
                         st.session_state.cards = pd.concat([st.session_state.cards, pd.DataFrame([new_card])], ignore_index=True)
                         save_data()
-                        st.session_state.toast_msg = f"✅ Credit Card '{c_name}' added successfully!"
-                        st.rerun()
+                        st.success(f"✅ Credit Card '{c_name}' added successfully!")
+                        st.balloons()
                     else:
                         st.warning("Credit Card already exists!")
         
@@ -293,7 +286,7 @@ elif menu == "Master Settings":
             if st.button("Delete Credit Card"):
                 st.session_state.cards = st.session_state.cards[st.session_state.cards["Card Name"] != del_card]
                 save_data()
-                st.session_state.toast_msg = "✅ Credit Card deleted successfully!"
+                st.success("✅ Credit Card deleted successfully!")
                 st.rerun()
 
     with tab3:
@@ -320,8 +313,8 @@ elif menu == "Master Settings":
                         new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Frequency": ll_freq, "Due Date Value": ll_due_val, "Installment / Premium": ll_installment}
                         st.session_state.lic_loans = pd.concat([st.session_state.lic_loans, pd.DataFrame([new_ll])], ignore_index=True)
                         save_data()
-                        st.session_state.toast_msg = f"✅ {ll_type} added successfully!"
-                        st.rerun()
+                        st.success(f"✅ {ll_type} added successfully!")
+                        st.balloons()
                     else:
                         st.warning("LIC/Loan entry already exists!")
                 else:
@@ -334,7 +327,7 @@ elif menu == "Master Settings":
             if st.button("Delete LIC/Loan"):
                 st.session_state.lic_loans = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] != del_ll]
                 save_data()
-                st.session_state.toast_msg = "✅ LIC/Loan deleted successfully!"
+                st.success("✅ LIC/Loan deleted successfully!")
                 st.rerun()
 
     with tab4:
@@ -349,8 +342,8 @@ elif menu == "Master Settings":
                     if new_sub not in existing_subs:
                         st.session_state.submenus[loc_choice].append(new_sub)
                         save_data()
-                        st.session_state.toast_msg = f"✅ Submenu '{new_sub}' added successfully!"
-                        st.rerun()
+                        st.success(f"✅ Submenu '{new_sub}' added successfully!")
+                        st.balloons()
                     else:
                         st.warning("Submenu already exists in this location!")
         
@@ -361,7 +354,7 @@ elif menu == "Master Settings":
             if st.button("Delete Submenu"):
                 st.session_state.submenus[loc_choice].remove(sub_to_del)
                 save_data()
-                st.session_state.toast_msg = "✅ Submenu deleted successfully!"
+                st.success("✅ Submenu deleted successfully!")
                 st.rerun()
 
 # ==================== 4. ADD INCOME ====================
@@ -407,8 +400,8 @@ elif menu == "Add Income":
             new_tx = {"Date": str(inc_date), "Type": "Income", "Location": "N/A", "Submenu": inc_source, "Mode": mode, "Account/Card": account_or_card if account_or_card else "Cash", "Amount": amount, "Note": note}
             st.session_state.transactions = pd.concat([st.session_state.transactions, pd.DataFrame([new_tx])], ignore_index=True)
             save_data()
-            st.session_state.toast_msg = "✅ Income recorded successfully!"
-            st.rerun()
+            st.success("✅ Income recorded successfully! Action completed 100%.")
+            st.balloons()
 
 # ==================== 5. SPECIAL TRANSACTIONS ====================
 elif menu == "Special Transactions":
@@ -445,8 +438,8 @@ elif menu == "Special Transactions":
                         idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc].index[0]
                         st.session_state.cards.loc[idx, "Current Limit"] += amount
                 save_data()
-                st.session_state.toast_msg = "✅ Special transaction recorded successfully!"
-                st.rerun()
+                st.success("✅ Special transaction recorded successfully!")
+                st.balloons()
 
     elif st_type == "Self-Transfer Between Accounts":
         with st.form("transfer_form"):
@@ -464,8 +457,8 @@ elif menu == "Special Transactions":
                     st.session_state.banks.loc[idx_from, "Current Balance"] -= amount
                     st.session_state.banks.loc[idx_to, "Current Balance"] += amount
                     save_data()
-                    st.session_state.toast_msg = "✅ Self-transfer completed successfully!"
-                    st.rerun()
+                    st.success("✅ Self-transfer completed successfully!")
+                    st.balloons()
 
     elif st_type == "Credit Card Bill Payment":
         with st.form("cc_bill_form"):
@@ -480,8 +473,8 @@ elif menu == "Special Transactions":
                 st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
                 st.session_state.cards.loc[c_idx, "Current Limit"] += amount
                 save_data()
-                st.session_state.toast_msg = f"✅ Bill paid successfully for {cc_name} via {bank_name}!"
-                st.rerun()
+                st.success(f"✅ Bill paid successfully for {cc_name} via {bank_name}!")
+                st.balloons()
 
     elif st_type == "LIC / Loan Installment Payment":
         with st.form("lic_pay_form"):
@@ -494,8 +487,8 @@ elif menu == "Special Transactions":
                     b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
                     st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
                     save_data()
-                    st.session_state.toast_msg = f"✅ Installment paid for {ll_item} via {bank_name}!"
-                    st.rerun()
+                    st.success(f"✅ Installment paid for {ll_item} via {bank_name}!")
+                    st.balloons()
             else:
                 st.warning("No LIC or Loan added yet in Master Settings.")
 
@@ -594,8 +587,8 @@ elif menu == "Reports":
                             
                     st.session_state.transactions = st.session_state.transactions.drop(del_idx).reset_index(drop=True)
                     save_data()
-                    st.session_state.toast_msg = "✅ Transaction deleted and balances reversed successfully!"
-                    st.rerun()
+                    st.success("✅ Transaction deleted successfully!")
+                    st.balloons()
                     
         elif action_type == "Edit Transaction":
             edit_idx = st.selectbox("Select Transaction Index to Edit", df_rep.index.tolist() if not df_rep.empty else [], key="edit_tx_sel")
@@ -614,7 +607,6 @@ elif menu == "Reports":
                         t_type = row_data["Type"]
                         diff = new_amt - old_amt
                         
-                        # Adjust balances based on difference
                         if t_type == "Expense":
                             if mode == "Credit Card" and acc_card in st.session_state.cards["Card Name"].values:
                                 c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc_card].index[0]
@@ -633,8 +625,8 @@ elif menu == "Reports":
                         st.session_state.transactions.loc[edit_idx, "Amount"] = new_amt
                         st.session_state.transactions.loc[edit_idx, "Note"] = new_note
                         save_data()
-                        st.session_state.toast_msg = "✅ Transaction updated successfully!"
-                        st.rerun()
+                        st.success("✅ Transaction updated successfully!")
+                        st.balloons()
     else:
         st.info("No transactions recorded yet.")
 
