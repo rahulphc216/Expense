@@ -1269,7 +1269,7 @@ elif choice == "Manage Credit Cards":
       " Balance (पुराना बकाया)** और **Billing/Due Dates** मैनेज कर सकते हैं।"
   )
 
-  with st.expander("➕ नया क्रेडिट कार्ड जोड़ें"):
+  with st.expander("➕ नया क्रेडिट कार्ड जोड़ें (Click to Open)"):
     with st.form("add_cc_form", clear_on_submit=True):
       new_card_name = st.text_input("Card Name (जैसे: HDFC - XXXX)")
       b_date = st.number_input(
@@ -1714,9 +1714,7 @@ elif choice == "Manage Bank Accounts":
       tr_in_res = cursor.fetchone()[0]
       total_tr_in = tr_in_res if tr_in_res else 0.0
 
-      # Calculate balance based on account type
       if b_is_od == 1:
-        # For OD: available balance = opening_available + credits + tr_in - spent - tr_out
         current_balance = (
             b_opn + total_credited + total_tr_in - total_spent - total_tr_out
         )
