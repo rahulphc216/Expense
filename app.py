@@ -7,11 +7,13 @@ st.set_page_config(page_title="Personal Finance Manager", layout="wide")
 # --- Initialize Session State ---
 if "banks" not in st.session_state:
     st.session_state.banks = pd.DataFrame(columns=["Bank Name", "Account Type", "Opening Balance", "Current Balance", "Is OD", "OD Limit"])
-    # Default PNB OD account setup as per your example
     st.session_state.banks.loc[0] = ["PNB", "Current/OD", 66634.72, 66634.72, True, 211000.0]
 
 if "cards" not in st.session_state:
     st.session_state.cards = pd.DataFrame(columns=["Card Name", "Total Limit", "Opening Balance", "Current Limit", "Billing Date", "Due Date"])
+
+if "lic_loans" not in st.session_state:
+    st.session_state.lic_loans = pd.DataFrame(columns=["Name / Policy No", "Type", "Total Amount / Sum Assured", "Due Date", "Installment / Premium"])
 
 if "submenus" not in st.session_state:
     st.session_state.submenus = {
@@ -27,7 +29,6 @@ if "transactions" not in st.session_state:
 # --- Helper Functions ---
 def get_bank_net_balance(row):
     if row["Is OD"]:
-        # OD Logic: Current Balance - OD Limit (e.g., 66634.72 - 211000 = -144365.28)
         return row["Current Balance"] - row["OD Limit"]
     else:
         return row["Current Balance"]
@@ -40,7 +41,7 @@ menu = st.sidebar.selectbox("Navigation", ["Dashboard", "Master Settings", "Add 
 if menu == "Master Settings":
     st.header("⚙️ Master Settings (Add/Edit/Delete)")
     
-    tab1, tab2, tab3 = st.tabs(["Bank Accounts", "Credit Cards", "Location Submenus"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Bank Accounts", "Credit Cards", "LIC / Loans", "Location Submenus"])
     
     with tab1:
         st.subheader("Manage Bank Accounts (Multiple Banks & OD Accounts)")
@@ -68,7 +69,7 @@ if menu == "Master Settings":
                 st.rerun()
 
     with tab2:
-        st.subheader("Manage Credit Cards (Unlimited / 10+ Cards Support)")
+        st.subheader("Manage Credit Cards (10+ Cards Support)")
         with st.form("add_card_form"):
             c_name = st.text_input("Credit Card Name")
             c_limit = st.number_input("Total Limit", value=50000.0)
@@ -90,18 +91,37 @@ if menu == "Master Settings":
                 st.rerun()
 
     with tab3:
-        st.subheader("Manage Location Submenus (Dynamic Add/Edit/Delete)")
+        st.subheader("Manage LIC Policies & Loans")
+        with st.form("add_lic_loan_form"):
+            ll_name = st.text_input("Name / Policy Number / Loan Title")
+            ll_type = st.selectbox("Type", ["LIC Policy", "Loan"])
+            ll_amount = st.number_input("Total Amount / Sum Assured / Loan Amount", value=100000.0)
+            ll_due = st.date_input("Next Premium / Due Date", value=date.today())
+            ll_installment = st.number_input("Installment / Premium Amount", value=5000.0)
+            submitted_ll = st.form_submit_button("Add LIC / Loan")
+            if submitted_ll and ll_name:
+                new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Due Date": ll_due, "Installment / Premium": ll_installment}
+                st.session_state.lic_loans = pd.concat([st.session_state.lic_loans, pd.DataFrame([new_ll])], ignore_index=True)
+                st.success(f"{ll_type} added successfully!")
+        
+        st.write("### Existing LIC & Loans")
+        if not st.session_state.lic_loans.empty:
+            st.dataframe(st.session_state.lic_loans)
+            del_ll = st.selectbox("Select LIC/Loan to Delete", st.session_state.lic_loans["Name / Policy No"])
+            if st.button("Delete LIC/Loan"):
+                st.session_state.lic_loans = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] != del_ll]
+                st.rerun()
+
+    with tab4:
+        st.subheader("Manage Location Submenus")
         loc_choice = st.selectbox("Select Location", ["Patna", "Barhiya", "Lakhisarai", "Others"])
         
-        col_sub1, col_sub2 = st.columns(2)
-        with col_sub1:
-            new_sub = st.text_input("New Submenu Name")
-            if st.button("Add Submenu"):
-                if new_sub:
-                    # Allows same submenu name across different locations as requested
-                    st.session_state.submenus[loc_choice].append(new_sub)
-                    st.success(f"Added '{new_sub}' to {loc_choice}!")
-                    st.rerun()
+        new_sub = st.text_input("New Submenu Name")
+        if st.button("Add Submenu"):
+            if new_sub:
+                st.session_state.submenus[loc_choice].append(new_sub)
+                st.success(f"Added '{new_sub}' to {loc_choice}!")
+                st.rerun()
         
         st.write(f"Current Submenus in **{loc_choice}**:", st.session_state.submenus[loc_choice])
         if st.session_state.submenus[loc_choice]:
@@ -117,8 +137,6 @@ elif menu == "Add Expense":
     with st.form("expense_form"):
         exp_date = st.date_input("Date", value=date.today())
         location = st.selectbox("Location", ["Patna", "Barhiya", "Lakhisarai", "Others"])
-        
-        # Dynamic submenus check
         available_subs = st.session_state.submenus.get(location, ["General"])
         submenu = st.selectbox("Submenu Category", available_subs)
         
@@ -142,7 +160,6 @@ elif menu == "Add Expense":
         submitted_exp = st.form_submit_button("Save Expense")
         
         if submitted_exp:
-            # Update balances accordingly
             if mode == "Credit Card" and account_or_card:
                 idx = st.session_state.cards[st.session_state.cards["Card Name"] == account_or_card].index[0]
                 st.session_state.cards.loc[idx, "Current Limit"] -= amount
@@ -150,7 +167,6 @@ elif menu == "Add Expense":
                 idx = st.session_state.banks[st.session_state.banks["Bank Name"] == account_or_card].index[0]
                 st.session_state.banks.loc[idx, "Current Balance"] -= amount
                 
-            # Log transaction
             new_tx = {"Date": exp_date, "Type": "Expense", "Location": location, "Submenu": submenu, "Mode": mode, "Account/Card": account_or_card if account_or_card else "Cash", "Amount": amount, "Note": note}
             st.session_state.transactions = pd.concat([st.session_state.transactions, pd.DataFrame([new_tx])], ignore_index=True)
             st.success("Expense recorded successfully!")
@@ -199,7 +215,7 @@ elif menu == "Special Transactions":
     if st_type == "Lent / Borrow (Udhar)":
         with st.form("lent_form"):
             l_date = st.date_input("Date")
-            action = st.selectbox("Action", ["Given to Friend (Udhar Diya - Minus from Bank/Card, No Expense)", "Received Back from Friend (Plus to Bank/Card, No Income)"])
+            action = st.selectbox("Action", ["Given to Friend (Udhar Diya)", "Received Back from Friend"])
             mode = st.selectbox("Mode", ["Cash", "Bank Account", "Credit Card"])
             acc = None
             if mode == "Bank Account":
@@ -261,17 +277,41 @@ elif menu == "Special Transactions":
 else:
     st.header("📊 Financial Dashboard")
     
-    # 7 Days Due Date Alerts
+    # 7 Days Due Date Alerts (Credit Cards & LIC/Loans)
+    today = date.today()
     if not st.session_state.cards.empty:
-        today = date.today()
         for idx, row in st.session_state.cards.iterrows():
             try:
                 due_date = pd.to_datetime(row["Due Date"]).date()
                 days_left = (due_date - today).days
                 if 0 <= days_left <= 7:
-                    st.warning(f"🚨 **Alert:** Credit card **{row['Card Name']}** bill due in **{days_left} days** (Due Date: {row['Due Date']})!")
+                    st.warning(f"🚨 **Credit Card Alert:** **{row['Card Name']}** bill due in **{days_left} days** (Due Date: {row['Due Date']})!")
             except:
                 pass
+                
+    if not st.session_state.lic_loans.empty:
+        for idx, row in st.session_state.lic_loans.iterrows():
+            try:
+                due_date = pd.to_datetime(row["Due Date"]).date()
+                days_left = (due_date - today).days
+                if 0 <= days_left <= 7:
+                    st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** ({row['Type']}) payment due in **{days_left} days**!")
+            except:
+                pass
+
+    # --- ALL CREDIT CARDS COMBINED SUMMARY CARD ---
+    if not st.session_state.cards.empty:
+        st.subheader("💳 All Credit Cards Combined Summary")
+        c_df = st.session_state.cards.copy()
+        total_limit_all = c_df["Total Limit"].sum()
+        total_used_all = total_limit_all - c_df["Current Limit"].sum()
+        overall_usage_pct = (total_used_all / total_limit_all) * 100 if total_limit_all > 0 else 0
+        
+        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1.metric("Combined Total Limit", f"Rs. {total_limit_all:,.2f}")
+        col_m2.metric("Combined Total Used", f"Rs. {total_used_all:,.2f}")
+        col_m3.metric("Overall Usage Percentage", f"{overall_usage_pct:.1f}%")
+        st.markdown("---")
 
     col1, col2 = st.columns(2)
     
@@ -285,18 +325,17 @@ else:
             st.info("No bank accounts added yet.")
 
     with col2:
-        st.subheader("💳 Credit Cards Overview")
+        st.subheader("💳 Individual Credit Cards List")
         if not st.session_state.cards.empty:
-            c_df = st.session_state.cards.copy()
-            total_limit = c_df["Total Limit"].sum()
-            total_used = total_limit - c_df["Current Limit"].sum()
-            usage_pct = (total_used / total_limit) * 100 if total_limit > 0 else 0
-            
-            st.metric("Total Credit Limit (All Cards)", f"Rs. {total_limit:,.2f}")
-            st.metric("Total Used Limit", f"Rs. {total_used:,.2f}", f"{usage_pct:.1f}% used")
-            st.dataframe(c_df[["Card Name", "Total Limit", "Current Limit", "Due Date"]])
+            st.dataframe(st.session_state.cards[["Card Name", "Total Limit", "Current Limit", "Due Date"]])
         else:
             st.info("No credit cards added yet.")
+            
+    # LIC / Loans Overview on Dashboard
+    if not st.session_state.lic_loans.empty:
+        st.markdown("---")
+        st.subheader("📑 LIC Policies & Loans Summary")
+        st.dataframe(st.session_state.lic_loans)
 
     st.markdown("---")
     st.subheader("📋 Transaction History & Reports")
@@ -305,3 +344,7 @@ else:
         st.dataframe(st.session_state.transactions)
     else:
         st.info("No transactions recorded yet.")
+
+# --- Permanent Footer ---
+st.markdown("---")
+st.markdown("<p style='text-align: center; color: gray; font-size: 14px;'>Designed and developed by Rahul</p>", unsafe_allow_html=True)
