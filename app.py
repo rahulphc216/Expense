@@ -282,24 +282,25 @@ elif menu == "Master Settings":
     with tab3:
         st.subheader("Manage LIC Policies & Loans")
         with st.expander("➕ Click here to Add New LIC / Loan"):
-            with st.form("add_lic_loan_form"):
-                ll_name = st.text_input("Name / Policy Number / Loan Title")
-                ll_type = st.selectbox("Type", ["LIC Policy", "Loan"])
-                ll_amount = st.number_input("Total Amount / Sum Assured / Loan Amount", value=100000.0)
-                ll_freq = st.selectbox("Payment Frequency", ["Monthly", "Yearly"])
-                
-                if ll_freq == "Monthly":
-                    ll_due_val = str(st.number_input("Due Day of Month (1-31)", min_value=1, max_value=31, value=10))
-                else:
-                    # Yearly: First Month, then Date (jaise aapne bataya)
-                    col_m, col_d = st.columns(2)
-                    due_month = col_m.selectbox("Due Month", list(range(1, 13)), format_func=lambda x: datetime(2000, x, 1).strftime('%B'))
-                    due_day = col_d.number_input("Due Day", min_value=1, max_value=31, value=10)
-                    ll_due_val = f"{due_month:02d}-{due_day:02d}"
+            # Without st.form so selectbox changes update immediately
+            ll_name = st.text_input("Name / Policy Number / Loan Title", key="ll_name_in")
+            ll_type = st.selectbox("Type", ["LIC Policy", "Loan"], key="ll_type_in")
+            ll_amount = st.number_input("Total Amount / Sum Assured / Loan Amount", value=100000.0, key="ll_amt_in")
+            ll_freq = st.selectbox("Payment Frequency", ["Monthly", "Yearly"], key="ll_freq_in")
+            
+            if ll_freq == "Monthly":
+                ll_due_val = str(st.number_input("Due Day of Month (1-31)", min_value=1, max_value=31, value=10, key="ll_due_m"))
+            else:
+                # Yearly: First Month, then Date
+                col_m, col_d = st.columns(2)
+                due_month = col_m.selectbox("Due Month", list(range(1, 13)), format_func=lambda x: datetime(2000, x, 1).strftime('%B'), key="ll_due_month_sel")
+                due_day = col_d.number_input("Due Day", min_value=1, max_value=31, value=10, key="ll_due_d")
+                ll_due_val = f"{due_month:02d}-{due_day:02d}"
 
-                ll_installment = st.number_input("Installment / Premium Amount", value=5000.0)
-                submitted_ll = st.form_submit_button("Save LIC / Loan")
-                if submitted_ll and ll_name:
+            ll_installment = st.number_input("Installment / Premium Amount", value=5000.0, key="ll_inst_in")
+            
+            if st.button("Save LIC / Loan"):
+                if ll_name:
                     if ll_name not in st.session_state.lic_loans["Name / Policy No"].values:
                         new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Frequency": ll_freq, "Due Date Value": ll_due_val, "Installment / Premium": ll_installment}
                         st.session_state.lic_loans = pd.concat([st.session_state.lic_loans, pd.DataFrame([new_ll])], ignore_index=True)
@@ -307,6 +308,8 @@ elif menu == "Master Settings":
                         st.success(f"{ll_type} added successfully!")
                     else:
                         st.warning("LIC/Loan entry already exists!")
+                else:
+                    st.error("Please enter a valid Name or Policy Number.")
         
         st.write("### Existing LIC & Loans")
         if not st.session_state.lic_loans.empty:
