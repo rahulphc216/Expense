@@ -1833,11 +1833,11 @@ elif choice == "Manage Bank Accounts":
 
       b_cred_tot = b_df[
           (b_df["Type"] == "Income")
-          | (b_df["Sub-Category"] == "Self Transfer In")
+          | (b_df["Category"] == "Self Transfer In")
       ]["Amount"].sum()
       b_deb_tot = b_df[
           (b_df["Type"] == "Expense")
-          | (b_df["Sub-Category"] == "Self Transfer Out")
+          | (b_df["Category"] == "Self Transfer Out")
       ]["Amount"].sum()
 
       b_live_bal = b_opn_val + b_cred_tot - b_deb_tot
