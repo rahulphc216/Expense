@@ -40,11 +40,17 @@ def save_data():
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, default=str)
 
-# --- Initialize Session State from File ---
+# --- Initialize Session State from File with Safe Column Checks ---
 if "data_loaded" not in st.session_state:
     saved_data = load_data()
+    
     st.session_state.banks = pd.DataFrame(saved_data["banks"])
-    st.session_state.cards = pd.DataFrame(saved_data["cards"])
+    
+    cards_data = saved_data["cards"]
+    st.session_state.cards = pd.DataFrame(cards_data)
+    if not st.session_state.cards.empty and "Due Date (Day)" not in st.session_state.cards.columns:
+        st.session_state.cards["Due Date (Day)"] = 15 # Default fallback
+        
     st.session_state.lic_loans = pd.DataFrame(saved_data["lic_loans"])
     st.session_state.submenus = saved_data["submenus"]
     st.session_state.transactions = pd.DataFrame(saved_data["transactions"])
@@ -123,10 +129,9 @@ elif menu == "Dashboard":
     
     current_day = current_ist_date.day
     current_month = current_ist_date.month
-    current_year = current_ist_date.year
 
-    # Credit Card Alerts (Due date based on day of month)
-    if not st.session_state.cards.empty:
+    # Credit Card Alerts
+    if not st.session_state.cards.empty and "Due Date (Day)" in st.session_state.cards.columns:
         for idx, row in st.session_state.cards.iterrows():
             try:
                 due_day = int(row["Due Date (Day)"])
@@ -140,14 +145,13 @@ elif menu == "Dashboard":
     if not st.session_state.lic_loans.empty:
         for idx, row in st.session_state.lic_loans.iterrows():
             try:
-                freq = row["Frequency"]
+                freq = row.get("Frequency", "Monthly")
                 if freq == "Monthly":
                     due_day = int(row["Due Date Value"])
                     days_left = due_day - current_day
                     if 0 <= days_left <= 7:
                         st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** payment due in **{days_left} days** (Due on {due_day}th)!")
                 elif freq == "Yearly":
-                    # Due Date Value stored as 'MM-DD'
                     parts = row["Due Date Value"].split("-")
                     due_m, due_d = int(parts[0]), int(parts[1])
                     if due_m == current_month:
@@ -184,7 +188,8 @@ elif menu == "Dashboard":
     with col2:
         st.subheader("💳 Individual Credit Cards List")
         if not st.session_state.cards.empty:
-            st.dataframe(st.session_state.cards[["Card Name", "Total Limit", "Current Limit", "Due Date (Day)"]])
+            disp_cols = [c for c in ["Card Name", "Total Limit", "Current Limit", "Billing Date", "Due Date (Day)"] if c in st.session_state.cards.columns]
+            st.dataframe(st.session_state.cards[disp_cols])
         else:
             st.info("No credit cards added yet.")
             
@@ -258,7 +263,8 @@ elif menu == "Master Settings":
         
         st.write("### Existing Credit Cards")
         if not st.session_state.cards.empty:
-            st.dataframe(st.session_state.cards[["Card Name", "Total Limit", "Current Limit", "Billing Date", "Due Date (Day)"]])
+            disp_cols = [c for c in ["Card Name", "Total Limit", "Current Limit", "Billing Date", "Due Date (Day)"] if c in st.session_state.cards.columns]
+            st.dataframe(st.session_state.cards[disp_cols])
             del_card = st.selectbox("Select Card to Delete", st.session_state.cards["Card Name"], key="del_card_sel")
             if st.button("Delete Credit Card"):
                 st.session_state.cards = st.session_state.cards[st.session_state.cards["Card Name"] != del_card]
@@ -277,6 +283,7 @@ elif menu == "Master Settings":
                 if ll_freq == "Monthly":
                     ll_due_val = str(st.number_input("Due Day of Month (1-31)", min_value=1, max_value=31, value=10))
                 else:
+                    # Yearly: First Month, then Date
                     col_m, col_d = st.columns(2)
                     due_month = col_m.selectbox("Due Month", list(range(1, 13)), format_func=lambda x: datetime(2000, x, 1).strftime('%B'))
                     due_day = col_d.number_input("Due Day", min_value=1, max_value=31, value=10)
