@@ -1084,7 +1084,7 @@ elif choice == "Edit Transaction":
   else:
     st.warning("दर्ज की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
 
-# ----------------- 5. MANAGE CREDIT CARDS (ADVANCED LEDGER & PERIOD FILTER) -----------------
+# ----------------- 5. MANAGE CREDIT CARDS (ADVANCED LEDGER & MASTER SUMMARY) -----------------
 elif choice == "Manage Credit Cards":
   st.subheader(
       "💳 क्रेडिट कार्ड लेजर, लिमिट और स्टेटमेंट मैनेजर (Advanced CC Ledger)"
@@ -1092,8 +1092,8 @@ elif choice == "Manage Credit Cards":
   st.write(
       "यहाँ आप सभी क्रेडिट कार्ड्स की **Dynamic Total Limit**, **Opening"
       " Balance (पुराना बकाया)** और **Billing/Due Dates** मैनेज कर सकते हैं।"
-      " साथ ही किसी भी कार्ड का पूरा स्टेटमेंट और समय-सीमा (Period Filter)"
-      " के हिसाब से लेजर देख सकते हैं।"
+      " साथ ही सभी कार्ड्स का ग्लोबल मास्टर ओवरव्यू और व्यक्तिगत स्टेटमेंट देख"
+      " सकते हैं।"
   )
 
   with st.expander("➕ नया क्रेडिट कार्ड जोड़ें"):
@@ -1154,24 +1154,34 @@ elif choice == "Manage Credit Cards":
   cc_records = cursor.fetchall()
 
   if cc_records:
-    st.markdown("### 📋 आपके सभी क्रेडिट कार्ड्स की लिमिट और स्थिति")
+    # ----------------- MASTER GLOBAL CREDIT SUMMARY -----------------
+    grand_total_limit = 0.0
+    grand_total_spent = 0.0
+    grand_total_credited = 0.0
+    grand_total_opening = 0.0
 
     cc_summary_list = []
     for c_id, c_name, b_dt, d_dt, t_lim, o_b, l_paid in cc_records:
+      grand_total_limit += t_lim
+      grand_total_opening += o_b
+
       cursor.execute(
           "SELECT SUM(amount) FROM transactions WHERE payment_mode = ?",
           (f"CC: {c_name}",),
       )
       spent_res = cursor.fetchone()[0]
       total_spent = spent_res if spent_res else 0.0
+      grand_total_spent += total_spent
 
+      # Check both Income type or Refund subcategories/remarks mentioning this card
       cursor.execute(
           "SELECT SUM(amount) FROM transactions WHERE type = 'Income' AND"
-          " (sub_category LIKE ? OR remarks LIKE ?)",
-          (f"%{c_name}%", f"%{c_name}%"),
+          " (sub_category LIKE ? OR remarks LIKE ? OR payment_mode LIKE ?)",
+          (f"%{c_name}%", f"%{c_name}%", f"%CC: {c_name}%"),
       )
       credit_res = cursor.fetchone()[0]
       total_credited = credit_res if credit_res else 0.0
+      grand_total_credited += total_credited
 
       net_outstanding = o_b + total_spent - total_credited
       available_limit = t_lim - net_outstanding
@@ -1189,6 +1199,25 @@ elif choice == "Manage Credit Cards":
           "Available Limit (Rs)": available_limit,
       })
 
+    grand_total_outstanding = (
+        grand_total_opening + grand_total_spent - grand_total_credited
+    )
+    grand_total_available = grand_total_limit - grand_total_outstanding
+    utilization_pct = (
+        (grand_total_outstanding / grand_total_limit * 100)
+        if grand_total_limit > 0
+        else 0.0
+    )
+
+    st.markdown("### 🌐 सभी क्रेडिट कार्ड्स का मास्टर सारांश (Master Overview)")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Limit", f"Rs {grand_total_limit:,.0f}")
+    m2.metric("Total Used", f"Rs {grand_total_outstanding:,.0f}")
+    m3.metric("Total Available", f"Rs {grand_total_available:,.0f}")
+    m4.metric("Utilization", f"{utilization_pct:.1f}%")
+
+    st.markdown("---")
+    st.markdown("### 📋 आपके सभी क्रेडिट कार्ड्स की व्यक्तिगत स्थिति")
     cc_summary_df = pd.DataFrame(cc_summary_list)
     st.dataframe(cc_summary_df, use_container_width=True)
 
@@ -1200,7 +1229,6 @@ elif choice == "Manage Credit Cards":
         "Select Card to View Statement", card_names_list, key="ledger_card_sel"
     )
 
-    # Period filter for this card inside the tab
     cc_period = st.selectbox(
         "Select Time Period for Statement",
         [
@@ -1223,7 +1251,7 @@ elif choice == "Manage Credit Cards":
     c_lim = card_meta[0] if card_meta else 0.0
     c_opn = card_meta[1] if card_meta else 0.0
 
-    # Fetch transactions for this card
+    # Fetch debit transactions for this card
     cursor.execute(
         "SELECT id, date, type, location, sub_category, amount, remarks FROM"
         " transactions WHERE payment_mode = ? ORDER BY date DESC",
@@ -1231,9 +1259,22 @@ elif choice == "Manage Credit Cards":
     )
     card_trans = cursor.fetchall()
 
-    if card_trans:
+    # Fetch credit/refund/payment transactions for this card
+    cursor.execute(
+        "SELECT id, date, type, location, sub_category, amount, remarks FROM"
+        " transactions WHERE type = 'Income' AND (sub_category LIKE ? OR"
+        " remarks LIKE ?) ORDER BY date DESC",
+        (f"%{selected_ledger_card}%", f"%{selected_ledger_card}%"),
+    )
+    card_refunds = cursor.fetchall()
+
+    # Combine both into a statement dataframe
+    all_card_rows = card_trans + card_refunds
+    if all_card_rows:
+      # Remove duplicates if any ID matches
+      unique_rows = {r[0]: r for r in all_card_rows}.values()
       c_df = pd.DataFrame(
-          card_trans,
+          list(unique_rows),
           columns=[
               "ID",
               "Date",
@@ -1246,7 +1287,6 @@ elif choice == "Manage Credit Cards":
       )
       c_df["DateTime"] = pd.to_datetime(c_df["Date"])
 
-      # Apply period filtering
       current_date = get_current_ist_date()
       current_year = current_date.year
 
@@ -1309,8 +1349,12 @@ elif choice == "Manage Credit Cards":
             & (c_df["DateTime"].dt.date <= c_end)
         ]
 
-      filtered_spent = c_df["Amount"].sum()
-      filtered_avail = c_lim - (c_opn + filtered_spent)
+      # Calculate filtered spent vs credited
+      filtered_spent = c_df[c_df["Type"] == "Expense"]["Amount"].sum()
+      filtered_credited = c_df[c_df["Type"] == "Income"]["Amount"].sum()
+      filtered_avail = c_lim - (
+          c_opn + filtered_spent - filtered_credited
+      )
 
       col_l1, col_l2, col_l3 = st.columns(3)
       col_l1.metric("Total Limit", f"Rs {c_lim:,.2f}")
@@ -1597,7 +1641,7 @@ elif choice == "Manage Loans & LIC":
             "DELETE FROM recurring_payments WHERE id = ?", (del_rec_id,)
         )
         conn.commit()
-        success_ph = st.empty()
+        success_ph.empty()
         success_ph.success(f"ID {del_rec_id} सफलतापूर्वक हटा दिया गया!")
         time.sleep(1.5)
         success_ph.empty()
