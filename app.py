@@ -121,24 +121,39 @@ if menu == "Add Expense":
 elif menu == "Dashboard":
     st.header("📊 Financial Dashboard")
     
-    today = current_ist_date
+    current_day = current_ist_date.day
+    current_month = current_ist_date.month
+    current_year = current_ist_date.year
+
+    # Credit Card Alerts (Due date based on day of month)
     if not st.session_state.cards.empty:
         for idx, row in st.session_state.cards.iterrows():
             try:
-                due_date = pd.to_datetime(row["Due Date"]).date()
-                days_left = (due_date - today).days
+                due_day = int(row["Due Date (Day)"])
+                days_left = due_day - current_day
                 if 0 <= days_left <= 7:
-                    st.warning(f"🚨 **Credit Card Alert:** **{row['Card Name']}** bill due in **{days_left} days** (Due Date: {row['Due Date']})!")
+                    st.warning(f"🚨 **Credit Card Alert:** **{row['Card Name']}** bill due in **{days_left} days** (Due Date: {due_day}th of this month)!")
             except:
                 pass
                 
+    # LIC / Loans Alerts
     if not st.session_state.lic_loans.empty:
         for idx, row in st.session_state.lic_loans.iterrows():
             try:
-                due_date = pd.to_datetime(row["Due Date"]).date()
-                days_left = (due_date - today).days
-                if 0 <= days_left <= 7:
-                    st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** ({row['Type']}) payment due in **{days_left} days**!")
+                freq = row["Frequency"]
+                if freq == "Monthly":
+                    due_day = int(row["Due Date Value"])
+                    days_left = due_day - current_day
+                    if 0 <= days_left <= 7:
+                        st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** payment due in **{days_left} days** (Due on {due_day}th)!")
+                elif freq == "Yearly":
+                    # Due Date Value stored as 'MM-DD'
+                    parts = row["Due Date Value"].split("-")
+                    due_m, due_d = int(parts[0]), int(parts[1])
+                    if due_m == current_month:
+                        days_left = due_d - current_day
+                        if 0 <= days_left <= 7:
+                            st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** annual payment due in **{days_left} days**!")
             except:
                 pass
 
@@ -169,7 +184,7 @@ elif menu == "Dashboard":
     with col2:
         st.subheader("💳 Individual Credit Cards List")
         if not st.session_state.cards.empty:
-            st.dataframe(st.session_state.cards[["Card Name", "Total Limit", "Current Limit", "Due Date"]])
+            st.dataframe(st.session_state.cards[["Card Name", "Total Limit", "Current Limit", "Due Date (Day)"]])
         else:
             st.info("No credit cards added yet.")
             
@@ -230,11 +245,11 @@ elif menu == "Master Settings":
                 c_limit = st.number_input("Total Limit", value=50000.0)
                 c_open = st.number_input("Current Used Amount", value=0.0)
                 c_bill = st.number_input("Billing Date (Day of month)", min_value=1, max_value=31, value=1)
-                c_due = st.date_input("Due Date", value=current_ist_date)
+                c_due = st.number_input("Due Date (Day of month e.g., 10)", min_value=1, max_value=31, value=15)
                 submitted_c = st.form_submit_button("Save Credit Card")
                 if submitted_c and c_name:
                     if c_name not in st.session_state.cards["Card Name"].values:
-                        new_card = {"Card Name": c_name, "Total Limit": c_limit, "Opening Balance": c_open, "Current Limit": c_limit - c_open, "Billing Date": c_bill, "Due Date": str(c_due)}
+                        new_card = {"Card Name": c_name, "Total Limit": c_limit, "Opening Balance": c_open, "Current Limit": c_limit - c_open, "Billing Date": c_bill, "Due Date (Day)": c_due}
                         st.session_state.cards = pd.concat([st.session_state.cards, pd.DataFrame([new_card])], ignore_index=True)
                         save_data()
                         st.success(f"Credit Card {c_name} added successfully!")
@@ -243,7 +258,7 @@ elif menu == "Master Settings":
         
         st.write("### Existing Credit Cards")
         if not st.session_state.cards.empty:
-            st.dataframe(st.session_state.cards)
+            st.dataframe(st.session_state.cards[["Card Name", "Total Limit", "Current Limit", "Billing Date", "Due Date (Day)"]])
             del_card = st.selectbox("Select Card to Delete", st.session_state.cards["Card Name"], key="del_card_sel")
             if st.button("Delete Credit Card"):
                 st.session_state.cards = st.session_state.cards[st.session_state.cards["Card Name"] != del_card]
@@ -257,12 +272,21 @@ elif menu == "Master Settings":
                 ll_name = st.text_input("Name / Policy Number / Loan Title")
                 ll_type = st.selectbox("Type", ["LIC Policy", "Loan"])
                 ll_amount = st.number_input("Total Amount / Sum Assured / Loan Amount", value=100000.0)
-                ll_due = st.date_input("Next Premium / Due Date", value=current_ist_date)
+                ll_freq = st.selectbox("Payment Frequency", ["Monthly", "Yearly"])
+                
+                if ll_freq == "Monthly":
+                    ll_due_val = str(st.number_input("Due Day of Month (1-31)", min_value=1, max_value=31, value=10))
+                else:
+                    col_m, col_d = st.columns(2)
+                    due_month = col_m.selectbox("Due Month", list(range(1, 13)), format_func=lambda x: datetime(2000, x, 1).strftime('%B'))
+                    due_day = col_d.number_input("Due Day", min_value=1, max_value=31, value=10)
+                    ll_due_val = f"{due_month:02d}-{due_day:02d}"
+
                 ll_installment = st.number_input("Installment / Premium Amount", value=5000.0)
                 submitted_ll = st.form_submit_button("Save LIC / Loan")
                 if submitted_ll and ll_name:
                     if ll_name not in st.session_state.lic_loans["Name / Policy No"].values:
-                        new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Due Date": str(ll_due), "Installment / Premium": ll_installment}
+                        new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Frequency": ll_freq, "Due Date Value": ll_due_val, "Installment / Premium": ll_installment}
                         st.session_state.lic_loans = pd.concat([st.session_state.lic_loans, pd.DataFrame([new_ll])], ignore_index=True)
                         save_data()
                         st.success(f"{ll_type} added successfully!")
@@ -351,9 +375,9 @@ elif menu == "Add Income":
 
 # ==================== 5. SPECIAL TRANSACTIONS ====================
 elif menu == "Special Transactions":
-    st.header("🔄 Special Transactions (No Income/Expense Impact)")
+    st.header("🔄 Special Transactions (Payments & Transfers)")
     
-    st_type = st.selectbox("Transaction Type", ["Lent / Borrow (Udhar)", "Self-Transfer Between Accounts", "Credit Card Bill Payment"])
+    st_type = st.selectbox("Transaction Type", ["Lent / Borrow (Udhar)", "Self-Transfer Between Accounts", "Credit Card Bill Payment", "LIC / Loan Installment Payment"])
     
     if st_type == "Lent / Borrow (Udhar)":
         with st.form("lent_form"):
@@ -410,14 +434,29 @@ elif menu == "Special Transactions":
             bank_name = st.selectbox("Pay via Bank Account", st.session_state.banks["Bank Name"])
             amount = st.number_input("Bill Payment Amount", value=5000.0)
             
-            if st.form_submit_button("Pay Bill (Clears Due Alert & Updates Limits)"):
+            if st.form_submit_button("Pay Bill (Clears Alert & Restores Limit)"):
                 b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
                 c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == cc_name].index[0]
                 
                 st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
                 st.session_state.cards.loc[c_idx, "Current Limit"] += amount
                 save_data()
-                st.success(f"Bill paid successfully for {cc_name} via {bank_name}!")
+                st.success(f"Bill paid successfully for {cc_name} via {bank_name}. Alert cleared & limit updated!")
+
+    elif st_type == "LIC / Loan Installment Payment":
+        with st.form("lic_pay_form"):
+            if not st.session_state.lic_loans.empty:
+                ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"])
+                bank_name = st.selectbox("Pay via Bank Account", st.session_state.banks["Bank Name"])
+                amount = st.number_input("Installment Amount Paid", value=5000.0)
+                
+                if st.form_submit_button("Pay Installment (Clears Alert)"):
+                    b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
+                    st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
+                    save_data()
+                    st.success(f"Installment paid for {ll_item} via {bank_name}. Alert cleared!")
+            else:
+                st.warning("No LIC or Loan added yet in Master Settings.")
 
 # ==================== 6. REPORTS ====================
 elif menu == "Reports":
