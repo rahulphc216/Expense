@@ -157,8 +157,6 @@ elif menu == "Master Settings":
     
     with tab1:
         st.subheader("Manage Bank Accounts")
-        
-        # Hidden collapsible add window
         with st.expander("➕ Click here to Add New Bank Account"):
             with st.form("add_bank_form"):
                 b_name = st.text_input("Bank Name")
@@ -185,8 +183,6 @@ elif menu == "Master Settings":
 
     with tab2:
         st.subheader("Manage Credit Cards")
-        
-        # Hidden collapsible add window
         with st.expander("➕ Click here to Add New Credit Card"):
             with st.form("add_card_form"):
                 c_name = st.text_input("Credit Card Name")
@@ -210,8 +206,6 @@ elif menu == "Master Settings":
 
     with tab3:
         st.subheader("Manage LIC Policies & Loans")
-        
-        # Hidden collapsible add window
         with st.expander("➕ Click here to Add New LIC / Loan"):
             with st.form("add_lic_loan_form"):
                 ll_name = st.text_input("Name / Policy Number / Loan Title")
@@ -236,8 +230,6 @@ elif menu == "Master Settings":
     with tab4:
         st.subheader("Manage Location Submenus")
         loc_choice = st.selectbox("Select Location", ["Patna", "Barhiya", "Lakhisarai", "Others"])
-        
-        # Hidden collapsible add window
         with st.expander("➕ Click here to Add New Submenu"):
             with st.form("add_sub_form"):
                 new_sub = st.text_input("New Submenu Name")
@@ -261,7 +253,6 @@ elif menu == "Add Income":
     with st.form("income_form"):
         inc_date = st.date_input("Date", value=current_ist_date)
         inc_source = st.selectbox("Income Source", ["Salary", "Advocate", "Refund from Online Platform", "Other"])
-        
         mode = st.selectbox("Receive Mode", ["Cash", "Credit Card (Refund)", "Saving Bank Account"])
         
         account_or_card = None
@@ -359,9 +350,32 @@ elif menu == "Special Transactions":
 # ==================== 6. REPORTS ====================
 elif menu == "Reports":
     st.header("📋 Detailed Reports & Transaction History")
+    
     if not st.session_state.transactions.empty:
-        filter_type = st.selectbox("Filter Report Type", ["All", "Daily", "Weekly", "Monthly", "Yearly"])
-        st.dataframe(st.session_state.transactions)
+        filter_type = st.selectbox("Filter Report Type", ["All", "Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly"])
+        
+        df_rep = st.session_state.transactions.copy()
+        df_rep["Date"] = pd.to_datetime(df_rep["Date"])
+        today_dt = pd.to_datetime(current_ist_date)
+        
+        if filter_type == "Daily":
+            df_rep = df_rep[df_rep["Date"].dt.date == current_ist_date]
+        elif filter_type == "Weekly":
+            start_week = today_dt - timedelta(days=7)
+            df_rep = df_rep[(df_rep["Date"] >= start_week) & (df_rep["Date"] <= today_dt)]
+        elif filter_type == "Monthly":
+            df_rep = df_rep[(df_rep["Date"].dt.month == today_dt.month) & (df_rep["Date"].dt.year == today_dt.year)]
+        elif filter_type == "Quarterly":
+            current_quarter = (today_dt.month - 1) // 3 + 1
+            df_rep = df_rep[(df_rep["Date"].dt.quarter == current_quarter) & (df_rep["Date"].dt.year == today_dt.year)]
+        elif filter_type == "Half Yearly":
+            current_half = 1 if today_dt.month <= 6 else 2
+            df_rep = df_rep[(df_rep["Date"].dt.month.apply(lambda m: 1 if m <= 6 else 2) == current_half) & (df_rep["Date"].dt.year == today_dt.year)]
+        elif filter_type == "Yearly":
+            df_rep = df_rep[df_rep["Date"].dt.year == today_dt.year]
+            
+        st.write(f"Showing **{filter_type}** Transactions:")
+        st.dataframe(df_rep)
     else:
         st.info("No transactions recorded yet.")
 
