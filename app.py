@@ -30,13 +30,15 @@ def init_db():
         )
     """)
 
-  # Credit Card Management table
+  # Credit Card Management table with Dynamic Limits & Opening Balance
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS credit_cards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             card_name TEXT UNIQUE,
             billing_date INTEGER,
             due_date INTEGER,
+            total_limit REAL DEFAULT 0.0,
+            opening_balance REAL DEFAULT 0.0,
             last_paid_month TEXT DEFAULT ''
         )
     """)
@@ -79,6 +81,14 @@ def init_db():
     cursor.execute(
         "ALTER TABLE credit_cards ADD COLUMN last_paid_month TEXT DEFAULT ''"
     )
+  if "total_limit" not in cc_columns:
+    cursor.execute(
+        "ALTER TABLE credit_cards ADD COLUMN total_limit REAL DEFAULT 0.0"
+    )
+  if "opening_balance" not in cc_columns:
+    cursor.execute(
+        "ALTER TABLE credit_cards ADD COLUMN opening_balance REAL DEFAULT 0.0"
+    )
 
   cursor.execute("PRAGMA table_info(recurring_payments)")
   rec_columns = [col[1] for col in cursor.fetchall()]
@@ -107,30 +117,31 @@ cursor = conn.cursor()
 cursor.execute("SELECT COUNT(*) FROM credit_cards")
 if cursor.fetchone()[0] == 0:
   initial_cards = [
-      ("ICICI - 6009", 1, 15, ""),
-      ("ICICI - 9003", 1, 15, ""),
-      ("Axis Bank - 5302", 1, 15, ""),
-      ("HDFC - 9659", 1, 15, ""),
-      ("HDFC - 0152", 1, 15, ""),
-      ("ICICI - 5000", 1, 15, ""),
-      ("ICICI - 7006", 1, 15, ""),
-      ("SBI - 0160", 1, 15, ""),
-      ("SBI - 2592", 1, 15, ""),
-      ("SBI - 9183", 1, 15, ""),
-      ("Yes Bank - 5409", 1, 15, ""),
-      ("Yes Bank - 8111", 1, 15, ""),
-      ("Axis Bank - 2718", 1, 15, ""),
-      ("Axis Bank - 7535", 1, 15, ""),
-      ("IndusInd Bank - 7035", 1, 15, ""),
-      ("IndusInd Bank - 0737", 1, 15, ""),
-      ("IDFC Bank - 5258", 1, 15, ""),
-      ("IDFC Bank - 4878", 1, 15, ""),
-      ("IDFC Bank - 9239", 1, 15, ""),
-      ("Other Credit Card", 1, 15, ""),
+      ("ICICI - 6009", 1, 15, 100000.0, 0.0, ""),
+      ("ICICI - 9003", 1, 15, 100000.0, 0.0, ""),
+      ("Axis Bank - 5302", 1, 15, 100000.0, 0.0, ""),
+      ("HDFC - 9659", 1, 15, 100000.0, 0.0, ""),
+      ("HDFC - 0152", 1, 15, 100000.0, 0.0, ""),
+      ("ICICI - 5000", 1, 15, 100000.0, 0.0, ""),
+      ("ICICI - 7006", 1, 15, 100000.0, 0.0, ""),
+      ("SBI - 0160", 1, 15, 100000.0, 0.0, ""),
+      ("SBI - 2592", 1, 15, 100000.0, 0.0, ""),
+      ("SBI - 9183", 1, 15, 100000.0, 0.0, ""),
+      ("Yes Bank - 5409", 1, 15, 100000.0, 0.0, ""),
+      ("Yes Bank - 8111", 1, 15, 100000.0, 0.0, ""),
+      ("Axis Bank - 2718", 1, 15, 100000.0, 0.0, ""),
+      ("Axis Bank - 7535", 1, 15, 100000.0, 0.0, ""),
+      ("IndusInd Bank - 7035", 1, 15, 100000.0, 0.0, ""),
+      ("IndusInd Bank - 0737", 1, 15, 100000.0, 0.0, ""),
+      ("IDFC Bank - 5258", 1, 15, 100000.0, 0.0, ""),
+      ("IDFC Bank - 4878", 1, 15, 100000.0, 0.0, ""),
+      ("IDFC Bank - 9239", 1, 15, 100000.0, 0.0, ""),
+      ("Other Credit Card", 1, 15, 100000.0, 0.0, ""),
   ]
   cursor.executemany(
       "INSERT OR IGNORE INTO credit_cards (card_name, billing_date, due_date,"
-      " last_paid_month) VALUES (?, ?, ?, ?)",
+      " total_limit, opening_balance, last_paid_month) VALUES (?, ?, ?, ?, ?,"
+      " ?)",
       initial_cards,
   )
   conn.commit()
@@ -466,7 +477,6 @@ if choice == "Add Transaction":
     final_payment_mode = f"CC: {credit_card_choice}"
 
   with st.form("add_trans_form", clear_on_submit=True):
-    # Automatically defaults to Indian Standard Time (IST) date
     trans_date = st.date_input("Transaction Date", value=get_current_ist_date())
 
     loc_options = get_locations_for_type(cursor, t_type)
@@ -1074,15 +1084,16 @@ elif choice == "Edit Transaction":
   else:
     st.warning("दर्ज की गई ID का कोई डेटा नहीं मिला। सही ID दर्ज करें।")
 
-# ----------------- 5. MANAGE CREDIT CARDS (BILLING & DUE DATES) -----------------
+# ----------------- 5. MANAGE CREDIT CARDS (ADVANCED LEDGER & LIMIT MANAGER) -----------------
 elif choice == "Manage Credit Cards (Dates)":
   st.subheader(
-      "💳 क्रेडिट कार्ड बिलिंग और ड्यू डेट मैनेजर (Credit Card Date Setup)"
+      "💳 क्रेडिट कार्ड लेजर, लिमिट और स्टेटमेंट मैनेजर (Advanced CC Ledger)"
   )
   st.write(
-      "यहाँ आप अपने सभी क्रेडिट कार्ड्स की **Billing Date** और **Due Date** सेट"
-      " या अपडेट कर सकते हैं। साथ ही 'Mark as Paid' से इस महीने का अलर्ट हटा सकते"
-      " हैं।"
+      "यहाँ आप सभी क्रेडिट कार्ड्स की **Dynamic Total Limit**, **Opening"
+      " Balance (पुराना बकाया)** और **Billing/Due Dates** मैनेज कर सकते हैं।"
+      " साथ ही किसी भी कार्ड का पूरा स्टेटमेंट (Debit/Credit/Available Limit)"
+      " देख सकते हैं।"
   )
 
   with st.expander("➕ नया क्रेडिट कार्ड जोड़ें"):
@@ -1094,6 +1105,18 @@ elif choice == "Manage Credit Cards (Dates)":
       d_date = st.number_input(
           "Due Date (1-31)", min_value=1, max_value=31, value=15
       )
+      t_limit = st.number_input(
+          "Total Credit Limit (Rs)",
+          min_value=0.0,
+          format="%.2f",
+          value=100000.0,
+      )
+      o_bal = st.number_input(
+          "Opening Balance / Past Unsettled Dues (Rs)",
+          min_value=0.0,
+          format="%.2f",
+          value=0.0,
+      )
       add_cc_btn = st.form_submit_button("Save Card Details")
 
       if add_cc_btn:
@@ -1101,8 +1124,16 @@ elif choice == "Manage Credit Cards (Dates)":
           try:
             cursor.execute(
                 "INSERT INTO credit_cards (card_name, billing_date, due_date,"
-                " last_paid_month) VALUES (?, ?, ?, ?)",
-                (new_card_name.strip(), b_date, d_date, ""),
+                " total_limit, opening_balance, last_paid_month) VALUES (?, ?,"
+                " ?, ?, ?, ?)",
+                (
+                    new_card_name.strip(),
+                    b_date,
+                    d_date,
+                    t_limit,
+                    o_bal,
+                    "",
+                ),
             )
             conn.commit()
             success_ph = st.empty()
@@ -1115,19 +1146,156 @@ elif choice == "Manage Credit Cards (Dates)":
         else:
           st.error("कृपया कार्ड का नाम दर्ज करें!")
 
+  # Fetch all credit cards data
   cursor.execute(
-      "SELECT id, card_name, billing_date, due_date, last_paid_month FROM"
-      " credit_cards"
+      "SELECT id, card_name, billing_date, due_date, total_limit,"
+      " opening_balance, last_paid_month FROM credit_cards"
   )
   cc_records = cursor.fetchall()
 
   if cc_records:
-    st.markdown("### 📋 आपके सभी क्रेडिट कार्ड्स की सूचियाँ और तिथियाँ")
-    cc_df = pd.DataFrame(
-        cc_records,
-        columns=["ID", "Card Name", "Billing Date", "Due Date", "Last Paid"],
+    st.markdown("### 📋 आपके सभी क्रेडिट कार्ड्स की लिमिट और स्थिति")
+
+    # Calculate live stats for each card
+    cc_summary_list = []
+    for c_id, c_name, b_dt, d_dt, t_lim, o_b, l_paid in cc_records:
+      # Calculate total spent (Debit) on this card
+      cursor.execute(
+          "SELECT SUM(amount) FROM transactions WHERE payment_mode = ?",
+          (f"CC: {c_name}",),
+      )
+      spent_res = cursor.fetchone()[0]
+      total_spent = spent_res if spent_res else 0.0
+
+      # Calculate total payments or refunds credited to this card
+      # We check income transactions or remarks/categories indicating bill payment to this card
+      cursor.execute(
+          "SELECT SUM(amount) FROM transactions WHERE type = 'Income' AND"
+          " (sub_category LIKE ? OR remarks LIKE ?)",
+          (f"%{c_name}%", f"%{c_name}%"),
+      )
+      credit_res = cursor.fetchone()[0]
+      total_credited = credit_res if credit_res else 0.0
+
+      # Net Outstanding = Opening Balance + Total Spent - Total Credited
+      net_outstanding = o_b + total_spent - total_credited
+      available_limit = t_lim - net_outstanding
+
+      cc_summary_list.append({
+          "ID": c_id,
+          "Card Name": c_name,
+          "Billing Date": b_dt,
+          "Due Date": d_dt,
+          "Total Limit (Rs)": t_lim,
+          "Opening Dues (Rs)": o_b,
+          "Total Spent (Rs)": total_spent,
+          "Total Paid/Refund (Rs)": total_credited,
+          "Outstanding (Rs)": net_outstanding,
+          "Available Limit (Rs)": available_limit,
+      })
+
+    cc_summary_df = pd.DataFrame(cc_summary_list)
+    st.dataframe(cc_summary_df, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### 📊 विस्तृत क्रेडिट कार्ड लेजर और स्टेटमेंट (Detailed Ledger)")
+    card_names_list = get_sorted_cc_list(cursor)
+    selected_ledger_card = st.selectbox(
+        "Select Card to View Full Statement", card_names_list, key="ledger_card_sel"
     )
-    st.dataframe(cc_df, use_container_width=True)
+
+    # Fetch card details
+    cursor.execute(
+        "SELECT total_limit, opening_balance FROM credit_cards WHERE"
+        " card_name = ?",
+        (selected_ledger_card,),
+    )
+    card_meta = cursor.fetchone()
+    c_lim = card_meta[0] if card_meta else 0.0
+    c_opn = card_meta[1] if card_meta else 0.0
+
+    # Fetch all transactions for this specific card
+    cursor.execute(
+        "SELECT id, date, type, location, sub_category, amount, remarks FROM"
+        " transactions WHERE payment_mode = ? ORDER BY date DESC",
+        (f"CC: {selected_ledger_card}",),
+    )
+    card_trans = cursor.fetchall()
+
+    st.markdown(f"**Card Statement for: `{selected_ledger_card}`**")
+    col_l1, col_l2, col_l3 = st.columns(3)
+    c_spent_tot = sum([t[5] for t in card_trans])
+    c_avail = c_lim - (c_opn + c_spent_tot)
+    col_l1.metric("Total Limit", f"Rs {c_lim:,.2f}")
+    col_l2.metric("Total Outstanding", f"Rs {c_opn + c_spent_tot:,.2f}")
+    col_l3.metric("Available Limit", f"Rs {c_avail:,.2f}")
+
+    if card_trans:
+      card_trans_df = pd.DataFrame(
+          card_trans,
+          columns=[
+              "ID",
+              "Date",
+              "Type",
+              "Location",
+              "Category",
+              "Amount (Rs)",
+              "Remarks",
+          ],
+      )
+      st.dataframe(card_trans_df, use_container_width=True)
+    else:
+      st.info(f"इस कार्ड से संबंधित कोई लेनदेन डेटा नहीं मिला है।")
+
+    st.markdown("---")
+    st.markdown("### ⚙️ कार्ड की लिमिट या तारीखें अपडेट करें (Dynamic Update)")
+    selected_card_to_edit = st.selectbox(
+        "Choose Card to Modify", card_names_list, key="update_card_meta_sel"
+    )
+
+    cursor.execute(
+        "SELECT billing_date, due_date, total_limit, opening_balance FROM"
+        " credit_cards WHERE card_name = ?",
+        (selected_card_to_edit,),
+    )
+    curr_b, curr_d, curr_lim, curr_opn = cursor.fetchone()
+
+    with st.form("update_cc_meta_form", clear_on_submit=True):
+      up_b = st.number_input(
+          "Billing Date", min_value=1, max_value=31, value=int(curr_b)
+      )
+      up_d = st.number_input(
+          "Due Date", min_value=1, max_value=31, value=int(curr_d)
+      )
+      up_lim = st.number_input(
+          "Total Credit Limit (Rs)",
+          min_value=0.0,
+          format="%.2f",
+          value=float(curr_lim),
+      )
+      up_opn = st.number_input(
+          "Opening Balance / Past Dues (Rs)",
+          min_value=0.0,
+          format="%.2f",
+          value=float(curr_opn),
+      )
+      up_btn = st.form_submit_button("Update Card Settings")
+
+      if up_btn:
+        cursor.execute(
+            "UPDATE credit_cards SET billing_date = ?, due_date = ?,"
+            " total_limit = ?, opening_balance = ? WHERE card_name = ?",
+            (up_b, up_d, up_lim, up_opn, selected_card_to_edit),
+        )
+        conn.commit()
+        success_ph = st.empty()
+        success_ph.success(
+            f"🎉 कार्ड '{selected_card_to_edit}' की डिटेल्स सफलतापूर्वक अपडेट"
+            " हो गईं!"
+        )
+        time.sleep(1.5)
+        success_ph.empty()
+        st.rerun()
 
     st.markdown("---")
     st.markdown(
@@ -1135,7 +1303,6 @@ elif choice == "Manage Credit Cards (Dates)":
         + current_month_str
         + ")"
     )
-    card_names_list = get_sorted_cc_list(cursor)
     selected_card_to_pay = st.selectbox(
         "Select Card to Mark Paid", card_names_list, key="mark_paid_sel"
     )
@@ -1154,49 +1321,6 @@ elif choice == "Manage Credit Cards (Dates)":
       time.sleep(1.5)
       success_ph.empty()
       st.rerun()
-
-    st.markdown("---")
-    st.markdown("### ✏️ किसी कार्ड की तारीख अपडेट करें")
-    selected_card_to_edit = st.selectbox(
-        "Choose Card to Update", card_names_list, key="update_date_sel"
-    )
-
-    cursor.execute(
-        "SELECT billing_date, due_date FROM credit_cards WHERE card_name = ?",
-        (selected_card_to_edit,),
-    )
-    curr_b, curr_d = cursor.fetchone()
-
-    with st.form("update_cc_form", clear_on_submit=True):
-      up_b = st.number_input(
-          "New Billing Date",
-          min_value=1,
-          max_value=31,
-          value=int(curr_b),
-      )
-      up_d = st.number_input(
-          "New Due Date",
-          min_value=1,
-          max_value=31,
-          value=int(curr_d),
-      )
-      up_btn = st.form_submit_button("Update Card Dates")
-
-      if up_btn:
-        cursor.execute(
-            "UPDATE credit_cards SET billing_date = ?, due_date = ? WHERE"
-            " card_name = ?",
-            (up_b, up_d, selected_card_to_edit),
-        )
-        conn.commit()
-        success_ph = st.empty()
-        success_ph.success(
-            f"🎉 कार्ड '{selected_card_to_edit}' की तारीखें सफलतापूर्वक अपडेट"
-            " हो गईं!"
-        )
-        time.sleep(1.5)
-        success_ph.empty()
-        st.rerun()
   else:
     st.info("कोई क्रेडिट कार्ड दर्ज नहीं है।")
 
