@@ -1,13 +1,11 @@
 import pandas as pd
 import streamlit as st
 from datetime import datetime, date, timedelta
-import pytz
 
 st.set_page_config(page_title="Personal Finance Manager", layout="wide")
 
-# --- IST Timezone Setup ---
-IST = pytz.timezone('Asia/Kolkata')
-current_ist_date = datetime.now(IST).date()
+# --- Current Date Setup (Native Python) ---
+current_ist_date = date.today()
 
 # --- Initialize Session State ---
 if "banks" not in st.session_state:
@@ -87,7 +85,6 @@ if menu == "Add Expense":
 elif menu == "Dashboard":
     st.header("📊 Financial Dashboard")
     
-    # Alerts
     today = current_ist_date
     if not st.session_state.cards.empty:
         for idx, row in st.session_state.cards.iterrows():
@@ -109,7 +106,6 @@ elif menu == "Dashboard":
             except:
                 pass
 
-    # Credit Cards Combined Summary
     if not st.session_state.cards.empty:
         st.subheader("💳 All Credit Cards Combined Summary")
         c_df = st.session_state.cards.copy()
