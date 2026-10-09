@@ -1,8 +1,13 @@
 import pandas as pd
 import streamlit as st
 from datetime import datetime, date, timedelta
+import pytz
 
 st.set_page_config(page_title="Personal Finance Manager", layout="wide")
+
+# --- IST Timezone Setup ---
+IST = pytz.timezone('Asia/Kolkata')
+current_ist_date = datetime.now(IST).date()
 
 # --- Initialize Session State ---
 if "banks" not in st.session_state:
@@ -33,12 +38,123 @@ def get_bank_net_balance(row):
     else:
         return row["Current Balance"]
 
-# --- Sidebar Navigation ---
+# --- Sidebar Navigation (Default to Add Expense) ---
 st.sidebar.title("Finance Manager")
-menu = st.sidebar.selectbox("Navigation", ["Dashboard", "Master Settings", "Add Expense", "Add Income", "Special Transactions", "Reports"])
+menu = st.sidebar.selectbox("Navigation", ["Add Expense", "Dashboard", "Master Settings", "Add Income", "Special Transactions", "Reports"])
 
-# ==================== 1. MASTER SETTINGS ====================
-if menu == "Master Settings":
+# ==================== 1. ADD EXPENSE (Default Home Window) ====================
+if menu == "Add Expense":
+    st.header("📉 Add Expense")
+    
+    with st.form("expense_form"):
+        exp_date = st.date_input("Date", value=current_ist_date)
+        location = st.selectbox("Location", ["Patna", "Barhiya", "Lakhisarai", "Others"])
+        available_subs = st.session_state.submenus.get(location, ["General"])
+        submenu = st.selectbox("Submenu Category", available_subs)
+        
+        mode = st.selectbox("Payment Mode", ["Cash", "Credit Card", "Saving Bank Account"])
+        
+        account_or_card = None
+        if mode == "Credit Card":
+            if not st.session_state.cards.empty:
+                account_or_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"])
+            else:
+                st.warning("Please add a credit card first in Master Settings.")
+        elif mode == "Saving Bank Account":
+            if not st.session_state.banks.empty:
+                account_or_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"])
+            else:
+                st.warning("Please add a bank account first in Master Settings.")
+                
+        amount = st.number_input("Amount", min_value=1.0, value=100.0)
+        note = st.text_input("Note / Description")
+        
+        submitted_exp = st.form_submit_button("Save Expense")
+        
+        if submitted_exp:
+            if mode == "Credit Card" and account_or_card:
+                idx = st.session_state.cards[st.session_state.cards["Card Name"] == account_or_card].index[0]
+                st.session_state.cards.loc[idx, "Current Limit"] -= amount
+            elif mode == "Saving Bank Account" and account_or_card:
+                idx = st.session_state.banks[st.session_state.banks["Bank Name"] == account_or_card].index[0]
+                st.session_state.banks.loc[idx, "Current Balance"] -= amount
+                
+            new_tx = {"Date": exp_date, "Type": "Expense", "Location": location, "Submenu": submenu, "Mode": mode, "Account/Card": account_or_card if account_or_card else "Cash", "Amount": amount, "Note": note}
+            st.session_state.transactions = pd.concat([st.session_state.transactions, pd.DataFrame([new_tx])], ignore_index=True)
+            st.success("Expense recorded successfully!")
+
+# ==================== 2. DASHBOARD ====================
+elif menu == "Dashboard":
+    st.header("📊 Financial Dashboard")
+    
+    # Alerts
+    today = current_ist_date
+    if not st.session_state.cards.empty:
+        for idx, row in st.session_state.cards.iterrows():
+            try:
+                due_date = pd.to_datetime(row["Due Date"]).date()
+                days_left = (due_date - today).days
+                if 0 <= days_left <= 7:
+                    st.warning(f"🚨 **Credit Card Alert:** **{row['Card Name']}** bill due in **{days_left} days** (Due Date: {row['Due Date']})!")
+            except:
+                pass
+                
+    if not st.session_state.lic_loans.empty:
+        for idx, row in st.session_state.lic_loans.iterrows():
+            try:
+                due_date = pd.to_datetime(row["Due Date"]).date()
+                days_left = (due_date - today).days
+                if 0 <= days_left <= 7:
+                    st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** ({row['Type']}) payment due in **{days_left} days**!")
+            except:
+                pass
+
+    # Credit Cards Combined Summary
+    if not st.session_state.cards.empty:
+        st.subheader("💳 All Credit Cards Combined Summary")
+        c_df = st.session_state.cards.copy()
+        total_limit_all = c_df["Total Limit"].sum()
+        total_used_all = total_limit_all - c_df["Current Limit"].sum()
+        overall_usage_pct = (total_used_all / total_limit_all) * 100 if total_limit_all > 0 else 0
+        
+        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1.metric("Combined Total Limit", f"Rs. {total_limit_all:,.2f}")
+        col_m2.metric("Combined Total Used", f"Rs. {total_used_all:,.2f}")
+        col_m3.metric("Overall Usage Percentage", f"{overall_usage_pct:.1f}%")
+        st.markdown("---")
+
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🏦 Bank Accounts Overview")
+        if not st.session_state.banks.empty:
+            b_df = st.session_state.banks.copy()
+            b_df["Net Balance (inc. OD)"] = b_df.apply(get_bank_net_balance, axis=1)
+            st.dataframe(b_df[["Bank Name", "Account Type", "Current Balance", "OD Limit", "Net Balance (inc. OD)"]])
+        else:
+            st.info("No bank accounts added yet.")
+
+    with col2:
+        st.subheader("💳 Individual Credit Cards List")
+        if not st.session_state.cards.empty:
+            st.dataframe(st.session_state.cards[["Card Name", "Total Limit", "Current Limit", "Due Date"]])
+        else:
+            st.info("No credit cards added yet.")
+            
+    if not st.session_state.lic_loans.empty:
+        st.markdown("---")
+        st.subheader("📑 LIC Policies & Loans Summary")
+        st.dataframe(st.session_state.lic_loans)
+
+    st.markdown("---")
+    st.subheader("📋 Transaction History & Reports")
+    if not st.session_state.transactions.empty:
+        st.dataframe(st.session_state.transactions)
+    else:
+        st.info("No transactions recorded yet.")
+
+# ==================== 3. MASTER SETTINGS ====================
+elif menu == "Master Settings":
     st.header("⚙️ Master Settings (Add/Edit/Delete)")
     
     tab1, tab2, tab3, tab4 = st.tabs(["Bank Accounts", "Credit Cards", "LIC / Loans", "Location Submenus"])
@@ -75,7 +191,7 @@ if menu == "Master Settings":
             c_limit = st.number_input("Total Limit", value=50000.0)
             c_open = st.number_input("Current Used Amount", value=0.0)
             c_bill = st.number_input("Billing Date (Day of month)", min_value=1, max_value=31, value=1)
-            c_due = st.date_input("Due Date", value=date.today())
+            c_due = st.date_input("Due Date", value=current_ist_date)
             submitted_c = st.form_submit_button("Add Credit Card")
             if submitted_c and c_name:
                 new_card = {"Card Name": c_name, "Total Limit": c_limit, "Opening Balance": c_open, "Current Limit": c_limit - c_open, "Billing Date": c_bill, "Due Date": c_due}
@@ -96,7 +212,7 @@ if menu == "Master Settings":
             ll_name = st.text_input("Name / Policy Number / Loan Title")
             ll_type = st.selectbox("Type", ["LIC Policy", "Loan"])
             ll_amount = st.number_input("Total Amount / Sum Assured / Loan Amount", value=100000.0)
-            ll_due = st.date_input("Next Premium / Due Date", value=date.today())
+            ll_due = st.date_input("Next Premium / Due Date", value=current_ist_date)
             ll_installment = st.number_input("Installment / Premium Amount", value=5000.0)
             submitted_ll = st.form_submit_button("Add LIC / Loan")
             if submitted_ll and ll_name:
@@ -107,7 +223,7 @@ if menu == "Master Settings":
         st.write("### Existing LIC & Loans")
         if not st.session_state.lic_loans.empty:
             st.dataframe(st.session_state.lic_loans)
-            del_ll = st.selectbox("Select LIC/Loan to Delete", st.session_state.lic_loans["Name / Policy No"])
+            del_ll = st.selectbox("Select LIC/Loan to Delete", st.session_state.lic_loans["Name / Policy No"], key="del_ll_key")
             if st.button("Delete LIC/Loan"):
                 st.session_state.lic_loans = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] != del_ll]
                 st.rerun()
@@ -130,53 +246,12 @@ if menu == "Master Settings":
                 st.session_state.submenus[loc_choice].remove(sub_to_del)
                 st.rerun()
 
-# ==================== 2. ADD EXPENSE ====================
-elif menu == "Add Expense":
-    st.header("📉 Add Expense")
-    
-    with st.form("expense_form"):
-        exp_date = st.date_input("Date", value=date.today())
-        location = st.selectbox("Location", ["Patna", "Barhiya", "Lakhisarai", "Others"])
-        available_subs = st.session_state.submenus.get(location, ["General"])
-        submenu = st.selectbox("Submenu Category", available_subs)
-        
-        mode = st.selectbox("Payment Mode", ["Cash", "Credit Card", "Saving Bank Account"])
-        
-        account_or_card = None
-        if mode == "Credit Card":
-            if not st.session_state.cards.empty:
-                account_or_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"])
-            else:
-                st.warning("Please add a credit card first in Master Settings.")
-        elif mode == "Saving Bank Account":
-            if not st.session_state.banks.empty:
-                account_or_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"])
-            else:
-                st.warning("Please add a bank account first in Master Settings.")
-                
-        amount = st.number_input("Amount", min_value=1.0, value=100.0)
-        note = st.text_input("Note / Description")
-        
-        submitted_exp = st.form_submit_button("Save Expense")
-        
-        if submitted_exp:
-            if mode == "Credit Card" and account_or_card:
-                idx = st.session_state.cards[st.session_state.cards["Card Name"] == account_or_card].index[0]
-                st.session_state.cards.loc[idx, "Current Limit"] -= amount
-            elif mode == "Saving Bank Account" and account_or_card:
-                idx = st.session_state.banks[st.session_state.banks["Bank Name"] == account_or_card].index[0]
-                st.session_state.banks.loc[idx, "Current Balance"] -= amount
-                
-            new_tx = {"Date": exp_date, "Type": "Expense", "Location": location, "Submenu": submenu, "Mode": mode, "Account/Card": account_or_card if account_or_card else "Cash", "Amount": amount, "Note": note}
-            st.session_state.transactions = pd.concat([st.session_state.transactions, pd.DataFrame([new_tx])], ignore_index=True)
-            st.success("Expense recorded successfully!")
-
-# ==================== 3. ADD INCOME ====================
+# ==================== 4. ADD INCOME ====================
 elif menu == "Add Income":
     st.header("📈 Add Income")
     
     with st.form("income_form"):
-        inc_date = st.date_input("Date", value=date.today())
+        inc_date = st.date_input("Date", value=current_ist_date)
         inc_source = st.selectbox("Income Source", ["Salary", "Advocate", "Refund from Online Platform", "Other"])
         
         mode = st.selectbox("Receive Mode", ["Cash", "Credit Card (Refund)", "Saving Bank Account"])
@@ -206,7 +281,7 @@ elif menu == "Add Income":
             st.session_state.transactions = pd.concat([st.session_state.transactions, pd.DataFrame([new_tx])], ignore_index=True)
             st.success("Income recorded successfully!")
 
-# ==================== 4. SPECIAL TRANSACTIONS ====================
+# ==================== 5. SPECIAL TRANSACTIONS ====================
 elif menu == "Special Transactions":
     st.header("🔄 Special Transactions (No Income/Expense Impact)")
     
@@ -214,7 +289,7 @@ elif menu == "Special Transactions":
     
     if st_type == "Lent / Borrow (Udhar)":
         with st.form("lent_form"):
-            l_date = st.date_input("Date")
+            l_date = st.date_input("Date", value=current_ist_date)
             action = st.selectbox("Action", ["Given to Friend (Udhar Diya)", "Received Back from Friend"])
             mode = st.selectbox("Mode", ["Cash", "Bank Account", "Credit Card"])
             acc = None
@@ -244,7 +319,7 @@ elif menu == "Special Transactions":
 
     elif st_type == "Self-Transfer Between Accounts":
         with st.form("transfer_form"):
-            t_date = st.date_input("Transfer Date")
+            t_date = st.date_input("Transfer Date", value=current_ist_date)
             from_acc = st.selectbox("From Bank Account", st.session_state.banks["Bank Name"], key="from_b")
             to_acc = st.selectbox("To Bank Account", st.session_state.banks["Bank Name"], key="to_b")
             amount = st.number_input("Transfer Amount", value=1000.0)
@@ -273,72 +348,9 @@ elif menu == "Special Transactions":
                 st.session_state.cards.loc[c_idx, "Current Limit"] += amount
                 st.success(f"Bill paid successfully for {cc_name} via {bank_name}!")
 
-# ==================== 5. DASHBOARD & REPORTS ====================
-else:
-    st.header("📊 Financial Dashboard")
-    
-    # 7 Days Due Date Alerts (Credit Cards & LIC/Loans)
-    today = date.today()
-    if not st.session_state.cards.empty:
-        for idx, row in st.session_state.cards.iterrows():
-            try:
-                due_date = pd.to_datetime(row["Due Date"]).date()
-                days_left = (due_date - today).days
-                if 0 <= days_left <= 7:
-                    st.warning(f"🚨 **Credit Card Alert:** **{row['Card Name']}** bill due in **{days_left} days** (Due Date: {row['Due Date']})!")
-            except:
-                pass
-                
-    if not st.session_state.lic_loans.empty:
-        for idx, row in st.session_state.lic_loans.iterrows():
-            try:
-                due_date = pd.to_datetime(row["Due Date"]).date()
-                days_left = (due_date - today).days
-                if 0 <= days_left <= 7:
-                    st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** ({row['Type']}) payment due in **{days_left} days**!")
-            except:
-                pass
-
-    # --- ALL CREDIT CARDS COMBINED SUMMARY CARD ---
-    if not st.session_state.cards.empty:
-        st.subheader("💳 All Credit Cards Combined Summary")
-        c_df = st.session_state.cards.copy()
-        total_limit_all = c_df["Total Limit"].sum()
-        total_used_all = total_limit_all - c_df["Current Limit"].sum()
-        overall_usage_pct = (total_used_all / total_limit_all) * 100 if total_limit_all > 0 else 0
-        
-        col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric("Combined Total Limit", f"Rs. {total_limit_all:,.2f}")
-        col_m2.metric("Combined Total Used", f"Rs. {total_used_all:,.2f}")
-        col_m3.metric("Overall Usage Percentage", f"{overall_usage_pct:.1f}%")
-        st.markdown("---")
-
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("🏦 Bank Accounts Overview")
-        if not st.session_state.banks.empty:
-            b_df = st.session_state.banks.copy()
-            b_df["Net Balance (inc. OD)"] = b_df.apply(get_bank_net_balance, axis=1)
-            st.dataframe(b_df[["Bank Name", "Account Type", "Current Balance", "OD Limit", "Net Balance (inc. OD)"]])
-        else:
-            st.info("No bank accounts added yet.")
-
-    with col2:
-        st.subheader("💳 Individual Credit Cards List")
-        if not st.session_state.cards.empty:
-            st.dataframe(st.session_state.cards[["Card Name", "Total Limit", "Current Limit", "Due Date"]])
-        else:
-            st.info("No credit cards added yet.")
-            
-    # LIC / Loans Overview on Dashboard
-    if not st.session_state.lic_loans.empty:
-        st.markdown("---")
-        st.subheader("📑 LIC Policies & Loans Summary")
-        st.dataframe(st.session_state.lic_loans)
-
-    st.markdown("---")
-    st.subheader("📋 Transaction History & Reports")
+# ==================== 6. REPORTS ====================
+elif menu == "Reports":
+    st.header("📋 Detailed Reports & Transaction History")
     if not st.session_state.transactions.empty:
         filter_type = st.selectbox("Filter Report Type", ["All", "Daily", "Weekly", "Monthly", "Yearly"])
         st.dataframe(st.session_state.transactions)
