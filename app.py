@@ -40,20 +40,28 @@ def save_data():
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, default=str)
 
-# --- Initialize Session State from File with Safe Column Checks ---
+# --- Initialize Session State with Safe Columns Check ---
 if "data_loaded" not in st.session_state:
     saved_data = load_data()
     
-    st.session_state.banks = pd.DataFrame(saved_data["banks"])
-    
-    cards_data = saved_data["cards"]
-    st.session_state.cards = pd.DataFrame(cards_data)
-    if not st.session_state.cards.empty and "Due Date (Day)" not in st.session_state.cards.columns:
-        st.session_state.cards["Due Date (Day)"] = 15 # Default fallback
+    st.session_state.banks = pd.DataFrame(saved_data.get("banks", []))
+    if st.session_state.banks.empty:
+        st.session_state.banks = pd.DataFrame(columns=["Bank Name", "Account Type", "Opening Balance", "Current Balance", "Is OD", "OD Limit"])
         
-    st.session_state.lic_loans = pd.DataFrame(saved_data["lic_loans"])
-    st.session_state.submenus = saved_data["submenus"]
-    st.session_state.transactions = pd.DataFrame(saved_data["transactions"])
+    st.session_state.cards = pd.DataFrame(saved_data.get("cards", []))
+    if st.session_state.cards.empty or "Card Name" not in st.session_state.cards.columns:
+        st.session_state.cards = pd.DataFrame(columns=["Card Name", "Total Limit", "Opening Balance", "Current Limit", "Billing Date", "Due Date (Day)"])
+        
+    st.session_state.lic_loans = pd.DataFrame(saved_data.get("lic_loans", []))
+    if st.session_state.lic_loans.empty:
+        st.session_state.lic_loans = pd.DataFrame(columns=["Name / Policy No", "Type", "Total Amount / Sum Assured", "Frequency", "Due Date Value", "Installment / Premium"])
+        
+    st.session_state.submenus = saved_data.get("submenus", {"Patna": ["Rent", "Office"], "Barhiya": ["Vegetable", "Fruit"], "Lakhisarai": ["General"], "Others": ["Misc"]})
+    
+    st.session_state.transactions = pd.DataFrame(saved_data.get("transactions", []))
+    if st.session_state.transactions.empty:
+        st.session_state.transactions = pd.DataFrame(columns=["Date", "Type", "Location", "Submenu", "Mode", "Account/Card", "Amount", "Note"])
+        
     st.session_state.data_loaded = True
 
 # --- Accurate IST Date Setup ---
@@ -88,12 +96,12 @@ if menu == "Add Expense":
     
     account_or_card = None
     if mode == "Credit Card":
-        if not st.session_state.cards.empty:
+        if not st.session_state.cards.empty and "Card Name" in st.session_state.cards.columns:
             account_or_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="exp_cc_input")
         else:
             st.warning("Please add a credit card first in Master Settings.")
     elif mode == "Saving Bank Account":
-        if not st.session_state.banks.empty:
+        if not st.session_state.banks.empty and "Bank Name" in st.session_state.banks.columns:
             account_or_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="exp_bank_input")
         else:
             st.warning("Please add a bank account first in Master Settings.")
@@ -161,7 +169,7 @@ elif menu == "Dashboard":
             except:
                 pass
 
-    if not st.session_state.cards.empty:
+    if not st.session_state.cards.empty and "Total Limit" in st.session_state.cards.columns:
         st.subheader("💳 All Credit Cards Combined Summary")
         c_df = st.session_state.cards.copy()
         total_limit_all = c_df["Total Limit"].sum()
@@ -262,7 +270,7 @@ elif menu == "Master Settings":
                         st.warning("Credit Card already exists!")
         
         st.write("### Existing Credit Cards")
-        if not st.session_state.cards.empty:
+        if not st.session_state.cards.empty and "Card Name" in st.session_state.cards.columns:
             disp_cols = [c for c in ["Card Name", "Total Limit", "Current Limit", "Billing Date", "Due Date (Day)"] if c in st.session_state.cards.columns]
             st.dataframe(st.session_state.cards[disp_cols])
             del_card = st.selectbox("Select Card to Delete", st.session_state.cards["Card Name"], key="del_card_sel")
@@ -283,7 +291,7 @@ elif menu == "Master Settings":
                 if ll_freq == "Monthly":
                     ll_due_val = str(st.number_input("Due Day of Month (1-31)", min_value=1, max_value=31, value=10))
                 else:
-                    # Yearly: First Month, then Date
+                    # Yearly: First Month, then Date (jaise aapne bataya)
                     col_m, col_d = st.columns(2)
                     due_month = col_m.selectbox("Due Month", list(range(1, 13)), format_func=lambda x: datetime(2000, x, 1).strftime('%B'))
                     due_day = col_d.number_input("Due Day", min_value=1, max_value=31, value=10)
@@ -345,12 +353,12 @@ elif menu == "Add Income":
     
     account_or_card = None
     if mode == "Credit Card (Refund)":
-        if not st.session_state.cards.empty:
+        if not st.session_state.cards.empty and "Card Name" in st.session_state.cards.columns:
             account_or_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="inc_cc_input")
         else:
             st.warning("Please add a credit card first in Master Settings.")
     elif mode == "Saving Bank Account":
-        if not st.session_state.banks.empty:
+        if not st.session_state.banks.empty and "Bank Name" in st.session_state.banks.columns:
             account_or_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="inc_bank_input")
         else:
             st.warning("Please add a bank account first in Master Settings.")
