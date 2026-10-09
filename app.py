@@ -505,6 +505,7 @@ st.markdown("---")
 menu = [
     "Add Transaction",
     "Self Bank Transfer",
+    "Credit Card Bill Payment",
     "Reports & Dashboard",
     "Detailed Summary (Expense/Income)",
     "Edit Transaction",
@@ -513,7 +514,7 @@ menu = [
     "Manage Loans & LIC",
     "Manage Categories",
 ]
-choice = st.sidebar.selectbox("Menu", menu)
+choice = st.sidebar.selectbox("Menu", menu, key="main_menu_selectbox")
 
 # ----------------- 1. TRANSACTION ADD SECTION -----------------
 if choice == "Add Transaction":
@@ -678,6 +679,74 @@ elif choice == "Self Bank Transfer":
         "सेल्फ ट्रांसफर के लिए कम से कम 2 बैंक खाते होने आवश्यक हैं। कृपया 'Manage"
         " Bank Accounts' में जाकर और बैंक जोड़ें।"
     )
+
+# ----------------- 1.2 CREDIT CARD BILL PAYMENT SECTION -----------------
+elif choice == "Credit Card Bill Payment":
+  st.subheader("💳 क्रेडिट कार्ड बिल भुगतान (Credit Card Bill Payment)")
+  st.write(
+      "अपने बैंक खाते से क्रेडिट कार्ड का बिल चुकाने के लिए यहाँ दर्ज करें।"
+      " इससे आपके बैंक खाते से पैसे कट जाएंगे और क्रेडिट कार्ड का बकाया चुकता हो जाएगा,"
+      " बिना आपके दैनिक खर्चों (Expense) को प्रभावित किए।"
+  )
+
+  cc_list = get_sorted_cc_list(cursor)
+  bank_list = get_sorted_bank_list(cursor)
+
+  if cc_list and bank_list:
+    with st.form("cc_bill_payment_form", clear_on_submit=True):
+      pay_date = st.date_input("Payment Date", value=get_current_ist_date())
+      selected_cc = st.selectbox("Select Credit Card to Pay (किस कार्ड का बिल है)", cc_list)
+      selected_bank = st.selectbox("Select Bank Account (किस बैंक से भुगतान हो रहा है)", bank_list)
+      bill_amount = st.number_input("Bill Payment Amount (Rs)", min_value=0.0, format="%.2f", value=0.0)
+      bill_remarks = st.text_area("Remarks / Note (विवरण)")
+      pay_btn = st.form_submit_button("Complete Bill Payment")
+
+      if pay_btn:
+        if bill_amount <= 0:
+          st.error("कृपया सही भुगतान राशि दर्ज करें!")
+        else:
+          date_str = pay_date.strftime("%Y-%m-%d")
+          # 1. Deduct money from Bank Account (Recorded as Transfer Out)
+          cursor.execute(
+              "INSERT INTO transactions (date, type, location, category, sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+              (
+                  date_str,
+                  "Transfer",
+                  "Bank Transfer",
+                  "CC Bill Payment Out",
+                  "CC Bill Payment Out",
+                  bill_amount,
+                  f"Bank: {selected_bank}",
+                  (f"Paid bill for {selected_cc}. " + bill_remarks).strip(),
+              ),
+          )
+          # 2. Credit/Settle amount to Credit Card (Recorded as Income/Refund to clear dues)
+          cursor.execute(
+              "INSERT INTO transactions (date, type, location, category, sub_category, amount, payment_mode, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+              (
+                  date_str,
+                  "Income",
+                  "Income Source",
+                  "Credit Card Bill Payment In",
+                  "Credit Card Bill Payment In",
+                  bill_amount,
+                  f"CC: {selected_cc}",
+                  (f"Bill paid via {selected_bank}. " + bill_remarks).strip(),
+              ),
+          )
+          # Automatically mark the card as paid for current month
+          cursor.execute(
+              "UPDATE credit_cards SET last_paid_month = ? WHERE card_name = ?",
+              (current_month_str, selected_cc),
+          )
+          conn.commit()
+          success_ph = st.empty()
+          success_ph.success("🎉 क्रेडिट कार्ड बिल भुगतान सफलतापूर्वक दर्ज हो गया!")
+          time.sleep(1.5)
+          success_ph.empty()
+          st.rerun()
+  else:
+    st.warning("कृपया सुनिश्चित करें कि कम से कम 1 क्रेडिट कार्ड और 1 बैंक खाता सिस्टम में मौजूद हो।")
 
 # ----------------- 2. REPORT & DASHBOARD SECTION -----------------
 elif choice == "Reports & Dashboard":
