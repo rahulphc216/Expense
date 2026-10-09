@@ -10,7 +10,7 @@ st.set_page_config(
 )
 
 
-# robust database connection and auto-migration (No More Errors!)
+# robust database connection and auto-migration
 def init_db():
   conn = sqlite3.connect("comprehensive_finance.db", check_same_thread=False)
   cursor = conn.cursor()
@@ -67,12 +67,14 @@ def init_db():
         )
     """)
 
+  # Custom Sub-Categories table with composite unique constraint to allow same name in different locations
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS custom_subcategories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             transaction_type TEXT,
             location TEXT,
-            sub_category_name TEXT
+            sub_category_name TEXT,
+            UNIQUE(transaction_type, location, sub_category_name)
         )
     """)
 
