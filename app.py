@@ -84,6 +84,20 @@ def get_submenus_for_location(loc):
     subs = st.session_state.submenus.get(loc, ["General"])
     return subs if subs else ["General"]
 
+def log_transaction(t_date, t_type, loc, sub, mode, acc_card, amount, note):
+    new_tx = {
+        "Date": str(t_date),
+        "Type": t_type,
+        "Location": loc,
+        "Submenu": sub,
+        "Mode": mode,
+        "Account/Card": acc_card,
+        "Amount": amount,
+        "Note": note
+    }
+    st.session_state.transactions = pd.concat([st.session_state.transactions, pd.DataFrame([new_tx])], ignore_index=True)
+    save_data()
+
 # --- Sidebar Navigation ---
 st.sidebar.title("Finance Manager")
 menu = st.sidebar.selectbox("Navigation", ["Add Expense", "Dashboard", "Master Settings", "Add Income", "Special Transactions", "Reports"])
@@ -125,6 +139,7 @@ if menu == "Add Expense":
             st.error("Please select a valid Bank Account.")
             
         if can_save:
+            acc_val = account_or_card if account_or_card else "Cash"
             if mode == "Credit Card" and account_or_card:
                 idx = st.session_state.cards[st.session_state.cards["Card Name"] == account_or_card].index[0]
                 st.session_state.cards.loc[idx, "Current Limit"] -= amount
@@ -132,9 +147,7 @@ if menu == "Add Expense":
                 idx = st.session_state.banks[st.session_state.banks["Bank Name"] == account_or_card].index[0]
                 st.session_state.banks.loc[idx, "Current Balance"] -= amount
                 
-            new_tx = {"Date": str(exp_date), "Type": "Expense", "Location": location, "Submenu": submenu, "Mode": mode, "Account/Card": account_or_card if account_or_card else "Cash", "Amount": amount, "Note": note}
-            st.session_state.transactions = pd.concat([st.session_state.transactions, pd.DataFrame([new_tx])], ignore_index=True)
-            save_data()
+            log_transaction(exp_date, "Expense", location, submenu, mode, acc_val, amount, note)
             st.success("✅ Expense recorded successfully! Action completed 100%.")
             st.balloons()
 
@@ -176,12 +189,11 @@ elif menu == "Dashboard":
             except:
                 pass
 
-    # RD / MF Due Alerts (Bulletproof Logic)
+    # RD / MF Due Alerts
     if not st.session_state.rd_mf.empty:
         for idx, row in st.session_state.rd_mf.iterrows():
             try:
-                status_val = str(row.get("Status", "")).strip().capitalize()
-                if status_val == "Pending":
+                if str(row.get("Status", "")).strip().capitalize() == "Pending":
                     freq = str(row.get("Frequency", "Monthly")).strip()
                     timing = str(row.get("Timing Value", ""))
                     
@@ -199,7 +211,7 @@ elif menu == "Dashboard":
                             days_left = due_d - current_day
                             if 0 <= days_left <= 7:
                                 st.warning(f"🚨 **RD/MF Alert:** **{row['Name / Scheme']}** annual installment due in **{days_left} days**!")
-            except Exception as e:
+            except:
                 pass
 
     # Quick Summary Metrics
@@ -420,6 +432,7 @@ elif menu == "Master Settings":
                         if rd_status == "Completed":
                             b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == rd_bank].index[0]
                             st.session_state.banks.loc[b_idx, "Current Balance"] -= rd_amt
+                            log_transaction(current_ist_date, "Investment (RD/MF)", "N/A", rd_name, "Saving Bank Account", rd_bank, rd_amt, f"Initial Complete Payment for {rd_name}")
                             
                         save_data()
                         st.success(f"✅ RD / MF scheme '{rd_name}' added successfully!")
@@ -465,11 +478,13 @@ elif menu == "Master Settings":
                                 if linked_b in st.session_state.banks["Bank Name"].values:
                                     b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == linked_b].index[0]
                                     st.session_state.banks.loc[b_idx, "Current Balance"] -= new_amt
+                                    log_transaction(current_ist_date, "Investment (RD/MF)", "N/A", edit_rd, "Saving Bank Account", linked_b, new_amt, f"Installment Completed for {edit_rd}")
                             elif old_status == "Completed" and new_status == "Completed" and old_amt != new_amt:
                                 diff = new_amt - old_amt
                                 if linked_b in st.session_state.banks["Bank Name"].values:
                                     b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == linked_b].index[0]
                                     st.session_state.banks.loc[b_idx, "Current Balance"] -= diff
+                                    log_transaction(current_ist_date, "Investment Adjustment", "N/A", edit_rd, "Saving Bank Account", linked_b, abs(diff), f"Amount updated for {edit_rd}")
                                     
                             st.session_state.rd_mf.loc[r_idx, "Installment Amount"] = new_amt
                             st.session_state.rd_mf.loc[r_idx, "Opening Balance"] = new_opening
@@ -538,6 +553,7 @@ elif menu == "Add Income":
             st.error("Please select a valid Bank Account.")
             
         if can_save:
+            acc_val = account_or_card if account_or_card else "Cash"
             if mode == "Credit Card (Refund)" and account_or_card:
                 idx = st.session_state.cards[st.session_state.cards["Card Name"] == account_or_card].index[0]
                 st.session_state.cards.loc[idx, "Current Limit"] += amount
@@ -545,9 +561,7 @@ elif menu == "Add Income":
                 idx = st.session_state.banks[st.session_state.banks["Bank Name"] == account_or_card].index[0]
                 st.session_state.banks.loc[idx, "Current Balance"] += amount
                 
-            new_tx = {"Date": str(inc_date), "Type": "Income", "Location": "N/A", "Submenu": inc_source, "Mode": mode, "Account/Card": account_or_card if account_or_card else "Cash", "Amount": amount, "Note": note}
-            st.session_state.transactions = pd.concat([st.session_state.transactions, pd.DataFrame([new_tx])], ignore_index=True)
-            save_data()
+            log_transaction(inc_date, "Income", "N/A", inc_source, mode, acc_val, amount, note)
             st.success("✅ Income recorded successfully! Action completed 100%.")
             st.balloons()
 
@@ -588,6 +602,7 @@ elif menu == "Special Transactions":
                 st.error("Please select a valid Credit Card.")
                 
             if can_proceed:
+                acc_val = acc if acc else "Cash"
                 if "Given" in action:
                     if mode == "Bank Account" and acc:
                         idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc].index[0]
@@ -595,6 +610,7 @@ elif menu == "Special Transactions":
                     elif mode == "Credit Card" and acc:
                         idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc].index[0]
                         st.session_state.cards.loc[idx, "Current Limit"] -= amount
+                    log_transaction(l_date, "Udhar Given", "N/A", "Lent", mode, acc_val, amount, note)
                 else:
                     if mode == "Bank Account" and acc:
                         idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc].index[0]
@@ -602,6 +618,7 @@ elif menu == "Special Transactions":
                     elif mode == "Credit Card" and acc:
                         idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc].index[0]
                         st.session_state.cards.loc[idx, "Current Limit"] += amount
+                    log_transaction(l_date, "Udhar Received", "N/A", "Borrow", mode, acc_val, amount, note)
                 save_data()
                 st.success("✅ Special transaction recorded successfully!")
                 st.balloons()
@@ -621,6 +638,10 @@ elif menu == "Special Transactions":
                 idx_to = st.session_state.banks[st.session_state.banks["Bank Name"] == to_acc].index[0]
                 st.session_state.banks.loc[idx_from, "Current Balance"] -= amount
                 st.session_state.banks.loc[idx_to, "Current Balance"] += amount
+                
+                log_transaction(t_date, "Self-Transfer Out", "N/A", "Transfer", "Saving Bank Account", from_acc, amount, f"Transfer to {to_acc}")
+                log_transaction(t_date, "Self-Transfer In", "N/A", "Transfer", "Saving Bank Account", to_acc, amount, f"Transfer from {from_acc}")
+                
                 save_data()
                 st.success("✅ Self-transfer completed successfully!")
                 st.balloons()
@@ -638,6 +659,10 @@ elif menu == "Special Transactions":
                 
                 st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
                 st.session_state.cards.loc[c_idx, "Current Limit"] += amount
+                
+                log_transaction(current_ist_date, "CC Bill Payment Out", "N/A", "Bill Payment", "Saving Bank Account", bank_name, amount, f"Paid bill for {cc_name}")
+                log_transaction(current_ist_date, "CC Bill Payment In", "N/A", "Bill Payment", "Credit Card", cc_name, amount, f"Paid via {bank_name}")
+                
                 save_data()
                 st.success(f"✅ Bill paid successfully for {cc_name} via {bank_name}!")
                 st.balloons()
@@ -654,149 +679,190 @@ elif menu == "Special Transactions":
             if st.button("Pay Installment (Clears Alert)"):
                 b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
                 st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
+                
+                log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, "Saving Bank Account", bank_name, amount, f"Installment paid for {ll_item}")
+                
                 save_data()
                 st.success(f"✅ Installment paid for {ll_item} via {bank_name}!")
                 st.balloons()
         else:
             st.warning("Please add Bank Accounts and LIC/Loans in Master Settings first.")
 
-# ==================== 6. REPORTS & TRANSACTION MANAGEMENT ====================
+# ==================== 6. REPORTS & PASSBOOK ====================
 elif menu == "Reports":
-    st.header("📋 Detailed Reports, Filters & Transaction Management")
+    st.header("📋 Reports & Individual Item Passbook (Ledger)")
     
-    if not st.session_state.transactions.empty:
-        st.subheader("🔍 Filter Reports")
-        
-        col_f1, col_f2, col_f3 = st.columns(3)
-        with col_f1:
-            filter_type = st.selectbox("Filter Period", ["All", "Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly", "Custom Date Range"])
-        with col_f2:
-            tx_type_filter = st.selectbox("Transaction Type", ["All", "Expense", "Income"])
-        with col_f3:
-            all_modes = ["All"] + list(st.session_state.transactions["Account/Card"].unique())
-            account_filter = st.selectbox("Filter by Bank/Card/Cash", all_modes)
+    tab_rep1, tab_rep2 = st.tabs(["🔍 General Filter Reports", "📖 Individual Passbook / Ledger"])
+    
+    with tab_rep1:
+        if not st.session_state.transactions.empty:
+            col_f1, col_f2, col_f3 = st.columns(3)
+            with col_f1:
+                filter_type = st.selectbox("Filter Period", ["All", "Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly", "Custom Date Range"], key="rep_per")
+            with col_f2:
+                tx_type_filter = st.selectbox("Transaction Type", ["All", "Expense", "Income"], key="rep_type")
+            with col_f3:
+                all_modes = ["All"] + list(st.session_state.transactions["Account/Card"].unique())
+                account_filter = st.selectbox("Filter by Bank/Card/Cash", all_modes, key="rep_acc")
+                
+            df_rep = st.session_state.transactions.copy()
+            df_rep["Date"] = pd.to_datetime(df_rep["Date"])
+            today_dt = pd.to_datetime(current_ist_date)
             
-        df_rep = st.session_state.transactions.copy()
-        df_rep["Date"] = pd.to_datetime(df_rep["Date"])
-        today_dt = pd.to_datetime(current_ist_date)
-        
-        # Period Filter
-        if filter_type == "Daily":
-            df_rep = df_rep[df_rep["Date"].dt.date == current_ist_date]
-        elif filter_type == "Weekly":
-            start_week = today_dt - timedelta(days=7)
-            df_rep = df_rep[(df_rep["Date"] >= start_week) & (df_rep["Date"] <= today_dt)]
-        elif filter_type == "Monthly":
-            df_rep = df_rep[(df_rep["Date"].dt.month == today_dt.month) & (df_rep["Date"].dt.year == today_dt.year)]
-        elif filter_type == "Quarterly":
-            current_quarter = (today_dt.month - 1) // 3 + 1
-            df_rep = df_rep[(df_rep["Date"].dt.quarter == current_quarter) & (df_rep["Date"].dt.year == today_dt.year)]
-        elif filter_type == "Half Yearly":
-            current_half = 1 if today_dt.month <= 6 else 2
-            df_rep = df_rep[(df_rep["Date"].dt.month.apply(lambda m: 1 if m <= 6 else 2) == current_half) & (df_rep["Date"].dt.year == today_dt.year)]
-        elif filter_type == "Yearly":
-            df_rep = df_rep[df_rep["Date"].dt.year == today_dt.year]
-        elif filter_type == "Custom Date Range":
-            c_start = st.date_input("Start Date", value=current_ist_date)
-            c_end = st.date_input("End Date", value=current_ist_date)
-            df_rep = df_rep[(df_rep["Date"].dt.date >= c_start) & (df_rep["Date"].dt.date <= c_end)]
+            if filter_type == "Daily":
+                df_rep = df_rep[df_rep["Date"].dt.date == current_ist_date]
+            elif filter_type == "Weekly":
+                start_week = today_dt - timedelta(days=7)
+                df_rep = df_rep[(df_rep["Date"] >= start_week) & (df_rep["Date"] <= today_dt)]
+            elif filter_type == "Monthly":
+                df_rep = df_rep[(df_rep["Date"].dt.month == today_dt.month) & (df_rep["Date"].dt.year == today_dt.year)]
+            elif filter_type == "Quarterly":
+                current_quarter = (today_dt.month - 1) // 3 + 1
+                df_rep = df_rep[(df_rep["Date"].dt.quarter == current_quarter) & (df_rep["Date"].dt.year == today_dt.year)]
+            elif filter_type == "Half Yearly":
+                current_half = 1 if today_dt.month <= 6 else 2
+                df_rep = df_rep[(df_rep["Date"].dt.month.apply(lambda m: 1 if m <= 6 else 2) == current_half) & (df_rep["Date"].dt.year == today_dt.year)]
+            elif filter_type == "Yearly":
+                df_rep = df_rep[df_rep["Date"].dt.year == today_dt.year]
+            elif filter_type == "Custom Date Range":
+                c_start = st.date_input("Start Date", value=current_ist_date, key="rep_start")
+                c_end = st.date_input("End Date", value=current_ist_date, key="rep_end")
+                df_rep = df_rep[(df_rep["Date"].dt.date >= c_start) & (df_rep["Date"].dt.date <= c_end)]
+                
+            if tx_type_filter != "All":
+                df_rep = df_rep[df_rep["Type"] == tx_type_filter]
+                
+            if account_filter != "All":
+                df_rep = df_rep[df_rep["Account/Card"] == account_filter]
+                
+            df_display = df_rep.copy()
+            df_display["Date"] = pd.to_datetime(df_display["Date"]).dt.date
+                
+            st.write(f"### Results (Total Records: {len(df_display)})")
+            st.dataframe(df_display)
             
-        # Type Filter
-        if tx_type_filter != "All":
-            df_rep = df_rep[df_rep["Type"] == tx_type_filter]
-            
-        # Account/Card Filter
-        if account_filter != "All":
-            df_rep = df_rep[df_rep["Account/Card"] == account_filter]
-            
-        # Format Date to remove 00:00:00 time
-        df_display = df_rep.copy()
-        df_display["Date"] = pd.to_datetime(df_display["Date"]).dt.date
-            
-        st.write(f"### Results (Total Records: {len(df_display)})")
-        st.dataframe(df_display)
-        
-        # Category / Submenu Wise Sum
-        if not df_rep.empty:
-            st.subheader("📊 Category / Submenu Wise Summary")
-            summary_df = df_rep.groupby(["Type", "Submenu"])["Amount"].sum().reset_index()
-            st.dataframe(summary_df)
+            if not df_rep.empty:
+                st.subheader("📊 Category / Submenu Wise Summary")
+                summary_df = df_rep.groupby(["Type", "Submenu"])["Amount"].sum().reset_index()
+                st.dataframe(summary_df)
 
-        st.markdown("---")
-        st.subheader("✏️ Edit or ❌ Delete Transaction")
-        
-        action_type = st.radio("Choose Action", ["Delete Transaction", "Edit Transaction"])
-        
-        if action_type == "Delete Transaction":
-            del_idx = st.selectbox("Select Transaction Index to Delete", df_rep.index.tolist() if not df_rep.empty else [], key="del_tx_sel")
-            if st.button("Delete Selected Transaction"):
-                if del_idx in st.session_state.transactions.index:
-                    tx_row = st.session_state.transactions.loc[del_idx]
-                    amt = tx_row["Amount"]
-                    mode = tx_row["Mode"]
-                    acc_card = tx_row["Account/Card"]
-                    t_type = tx_row["Type"]
-                    
-                    # Reverse Balance Effect
-                    if t_type == "Expense":
-                        if mode == "Credit Card" and acc_card in st.session_state.cards["Card Name"].values:
-                            c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc_card].index[0]
-                            st.session_state.cards.loc[c_idx, "Current Limit"] += amt
-                        elif mode == "Saving Bank Account" and acc_card in st.session_state.banks["Bank Name"].values:
-                            b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc_card].index[0]
-                            st.session_state.banks.loc[b_idx, "Current Balance"] += amt
-                    elif t_type == "Income":
-                        if "Credit Card" in mode and acc_card in st.session_state.cards["Card Name"].values:
-                            c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc_card].index[0]
-                            st.session_state.cards.loc[c_idx, "Current Limit"] -= amt
-                        elif mode == "Saving Bank Account" and acc_card in st.session_state.banks["Bank Name"].values:
-                            b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc_card].index[0]
-                            st.session_state.banks.loc[b_idx, "Current Balance"] += amt
-                            
-                    st.session_state.transactions = st.session_state.transactions.drop(del_idx).reset_index(drop=True)
-                    save_data()
-                    st.success("✅ Transaction deleted successfully!")
-                    st.balloons()
-                    
-        elif action_type == "Edit Transaction":
-            edit_idx = st.selectbox("Select Transaction Index to Edit", df_rep.index.tolist() if not df_rep.empty else [], key="edit_tx_sel")
-            if edit_idx in st.session_state.transactions.index:
-                row_data = st.session_state.transactions.loc[edit_idx]
-                with st.form("edit_tx_form"):
-                    st.write(f"Editing Transaction (Index: {edit_idx}, Type: {row_data['Type']})")
-                    new_amt = st.number_input("New Amount", value=float(row_data["Amount"]))
-                    new_note = st.text_input("New Note / Description", value=str(row_data["Note"]))
-                    submitted_edit = st.form_submit_button("Update Transaction")
-                    
-                    if submitted_edit:
-                        old_amt = row_data["Amount"]
-                        mode = row_data["Mode"]
-                        acc_card = row_data["Account/Card"]
-                        t_type = row_data["Type"]
-                        diff = new_amt - old_amt
+            st.markdown("---")
+            st.subheader("✏️ Edit or ❌ Delete Transaction")
+            
+            action_type = st.radio("Choose Action", ["Delete Transaction", "Edit Transaction"], key="tx_act_radio")
+            
+            if action_type == "Delete Transaction":
+                del_idx = st.selectbox("Select Transaction Index to Delete", df_rep.index.tolist() if not df_rep.empty else [], key="del_tx_sel")
+                if st.button("Delete Selected Transaction"):
+                    if del_idx in st.session_state.transactions.index:
+                        tx_row = st.session_state.transactions.loc[del_idx]
+                        amt = tx_row["Amount"]
+                        mode = tx_row["Mode"]
+                        acc_card = tx_row["Account/Card"]
+                        t_type = tx_row["Type"]
                         
                         if t_type == "Expense":
                             if mode == "Credit Card" and acc_card in st.session_state.cards["Card Name"].values:
                                 c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc_card].index[0]
-                                st.session_state.cards.loc[c_idx, "Current Limit"] -= diff
+                                st.session_state.cards.loc[c_idx, "Current Limit"] += amt
                             elif mode == "Saving Bank Account" and acc_card in st.session_state.banks["Bank Name"].values:
                                 b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc_card].index[0]
-                                st.session_state.banks.loc[b_idx, "Current Balance"] -= diff
+                                st.session_state.banks.loc[b_idx, "Current Balance"] += amt
                         elif t_type == "Income":
                             if "Credit Card" in mode and acc_card in st.session_state.cards["Card Name"].values:
                                 c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc_card].index[0]
-                                st.session_state.cards.loc[c_idx, "Current Limit"] += diff
+                                st.session_state.cards.loc[c_idx, "Current Limit"] -= amt
                             elif mode == "Saving Bank Account" and acc_card in st.session_state.banks["Bank Name"].values:
                                 b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc_card].index[0]
-                                st.session_state.banks.loc[b_idx, "Current Balance"] += diff
+                                st.session_state.banks.loc[b_idx, "Current Balance"] -= amt
                                 
-                        st.session_state.transactions.loc[edit_idx, "Amount"] = new_amt
-                        st.session_state.transactions.loc[edit_idx, "Note"] = new_note
+                        st.session_state.transactions = st.session_state.transactions.drop(del_idx).reset_index(drop=True)
                         save_data()
-                        st.success("✅ Transaction updated successfully!")
+                        st.success("✅ Transaction deleted successfully!")
                         st.balloons()
-    else:
-        st.info("No transactions recorded yet.")
+                        
+            elif action_type == "Edit Transaction":
+                edit_idx = st.selectbox("Select Transaction Index to Edit", df_rep.index.tolist() if not df_rep.empty else [], key="edit_tx_sel")
+                if edit_idx in st.session_state.transactions.index:
+                    row_data = st.session_state.transactions.loc[edit_idx]
+                    with st.form("edit_tx_form"):
+                        st.write(f"Editing Transaction (Index: {edit_idx}, Type: {row_data['Type']})")
+                        new_amt = st.number_input("New Amount", value=float(row_data["Amount"]))
+                        new_note = st.text_input("New Note / Description", value=str(row_data["Note"]))
+                        submitted_edit = st.form_submit_button("Update Transaction")
+                        
+                        if submitted_edit:
+                            old_amt = row_data["Amount"]
+                            mode = row_data["Mode"]
+                            acc_card = row_data["Account/Card"]
+                            t_type = row_data["Type"]
+                            diff = new_amt - old_amt
+                            
+                            if t_type == "Expense":
+                                if mode == "Credit Card" and acc_card in st.session_state.cards["Card Name"].values:
+                                    c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc_card].index[0]
+                                    st.session_state.cards.loc[c_idx, "Current Limit"] -= diff
+                                elif mode == "Saving Bank Account" and acc_card in st.session_state.banks["Bank Name"].values:
+                                    b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc_card].index[0]
+                                    st.session_state.banks.loc[b_idx, "Current Balance"] -= diff
+                            elif t_type == "Income":
+                                if "Credit Card" in mode and acc_card in st.session_state.cards["Card Name"].values:
+                                    c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == acc_card].index[0]
+                                    st.session_state.cards.loc[c_idx, "Current Limit"] += diff
+                                elif mode == "Saving Bank Account" and acc_card in st.session_state.banks["Bank Name"].values:
+                                    b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc_card].index[0]
+                                    st.session_state.banks.loc[b_idx, "Current Balance"] += diff
+                                    
+                            st.session_state.transactions.loc[edit_idx, "Amount"] = new_amt
+                            st.session_state.transactions.loc[edit_idx, "Note"] = new_note
+                            save_data()
+                            st.success("✅ Transaction updated successfully!")
+                            st.balloons()
+        else:
+            st.info("No transactions recorded yet.")
+
+    with tab_rep2:
+        st.subheader("📖 Individual Item Passbook / Ledger (In & Out History)")
+        
+        # Collect all item names
+        item_choices = []
+        if not st.session_state.banks.empty:
+            item_choices.extend([f"Bank: {b}" for b in st.session_state.banks["Bank Name"]])
+        if not st.session_state.cards.empty and "Card Name" in st.session_state.cards.columns:
+            item_choices.extend([f"Credit Card: {c}" for c in st.session_state.cards["Card Name"]])
+        if not st.session_state.rd_mf.empty:
+            item_choices.extend([f"RD/MF: {r}" for r in st.session_state.rd_mf["Name / Scheme"]])
+        if not st.session_state.lic_loans.empty:
+            item_choices.extend([f"LIC/Loan: {l}" for l in st.session_state.lic_loans["Name / Policy No"]])
+        item_choices.append("Cash")
+        
+        if item_choices:
+            selected_item = st.selectbox("Select Bank / Card / RD / Loan / LIC for Passbook", item_choices, key="passbook_sel")
+            
+            if not st.session_state.transactions.empty:
+                df_pass = st.session_state.transactions.copy()
+                
+                # Filter based on selection name
+                target_name = selected_item.split(": ")[-1] if ": " in selected_item else selected_item
+                
+                # Match against Account/Card column or Submenu/Note for assets
+                df_filtered = df_pass[
+                    (df_pass["Account/Card"] == target_name) | 
+                    (df_pass["Submenu"] == target_name) | 
+                    (df_pass["Note"].str.contains(target_name, case=False, na=False))
+                ]
+                
+                st.write(f"### Passbook History for: **{selected_item}** (Total Entries: {len(df_filtered)})")
+                if not df_filtered.empty:
+                    df_filtered["Date"] = pd.to_datetime(df_filtered["Date"]).dt.date
+                    st.dataframe(df_filtered[["Date", "Type", "Submenu", "Mode", "Account/Card", "Amount", "Note"]])
+                else:
+                    st.info(f"No direct transaction history found for '{target_name}'.")
+            else:
+                st.info("No transactions recorded yet.")
+        else:
+        
+            st.warning("Please add Bank Accounts, Credit Cards, or Assets in Master Settings first.")
 
 # --- Permanent Footer ---
 st.markdown("---")
