@@ -117,36 +117,6 @@ def add_years(sourcedate, years):
     except ValueError:
         return sourcedate.replace(year=sourcedate.year + years, month=2, day=28)
 
-def rollover_lic_loan(idx):
-    freq = str(st.session_state.lic_loans.loc[idx, "Frequency"]).strip()
-    due_val = str(st.session_state.lic_loans.loc[idx, "Due Date Value"]).strip()
-    try:
-        d_parts = due_val.split("-")
-        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-        if freq == "Monthly":
-            new_due_date = add_months(curr_due_date, 1)
-        else:
-            new_due_date = add_years(curr_due_date, 1)
-        st.session_state.lic_loans.loc[idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
-        st.session_state.lic_loans.loc[idx, "Status"] = "Pending"
-    except Exception as e:
-        st.error(f"Error rolling over date: {e}")
-
-def rollover_rd_mf(idx):
-    freq = str(st.session_state.rd_mf.loc[idx, "Frequency"]).strip()
-    due_val = str(st.session_state.rd_mf.loc[idx, "Timing Value"]).strip()
-    try:
-        d_parts = due_val.split("-")
-        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-        if freq == "Monthly":
-            new_due_date = add_months(curr_due_date, 1)
-        else:
-            new_due_date = add_years(curr_due_date, 1)
-        st.session_state.rd_mf.loc[idx, "Timing Value"] = new_due_date.strftime("%d-%m-%Y")
-        st.session_state.rd_mf.loc[idx, "Status"] = "Pending"
-    except Exception as e:
-        st.error(f"Error rolling over RD date: {e}")
-
 # --- Sidebar Navigation ---
 st.sidebar.title("Finance Manager")
 menu = st.sidebar.selectbox("Navigation", ["Add Expense", "Dashboard", "Master Settings", "Add Income", "Special Transactions", "Next Due Tracker", "Reports"])
