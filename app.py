@@ -171,7 +171,7 @@ elif menu == "Dashboard":
             except:
                 pass
                 
-    # LIC / Loans Alerts (Only if Status is Pending)
+    # LIC / Loans Alerts
     if not st.session_state.lic_loans.empty:
         if "Status" not in st.session_state.lic_loans.columns:
             st.session_state.lic_loans["Status"] = "Pending"
@@ -223,7 +223,7 @@ elif menu == "Dashboard":
 
     # Quick Summary Metrics
     st.subheader("📌 Overall Financial Summary")
-    col_s1, col_s2, col_s3 = st.columns(3)
+    col_s1, col_s2, col_s3, col_s4 = st.columns(4)
     
     total_bank_bal = 0
     if not st.session_state.banks.empty:
@@ -231,13 +231,19 @@ elif menu == "Dashboard":
         
     total_cc_used = 0
     total_cc_limit = 0
+    total_cc_usage_pct = 0.0
     if not st.session_state.cards.empty:
-        total_cc_limit = st.session_state.cards["Total Limit"].sum()
-        total_cc_used = total_cc_limit - st.session_state.cards["Current Limit"].sum()
+        tot_lim_ser = pd.to_numeric(st.session_state.cards["Total Limit"], errors="coerce").fillna(0)
+        cur_lim_ser = pd.to_numeric(st.session_state.cards["Current Limit"], errors="coerce").fillna(0)
+        total_cc_limit = tot_lim_ser.sum()
+        total_cc_used = (tot_lim_ser - cur_lim_ser).sum()
+        if total_cc_limit > 0:
+            total_cc_usage_pct = (total_cc_used / total_cc_limit) * 100
 
     col_s1.metric("Consolidated Bank Balance", f"Rs. {total_bank_bal:,.2f}")
     col_s2.metric("Total Credit Limit Used", f"Rs. {total_cc_used:,.2f}")
     col_s3.metric("Combined Credit Limit", f"Rs. {total_cc_limit:,.2f}")
+    col_s4.metric("Overall CC Usage %", f"{total_cc_usage_pct:.2f}%")
     st.markdown("---")
 
     col1, col2 = st.columns(2)
@@ -258,10 +264,7 @@ elif menu == "Dashboard":
             c_disp["Total Limit"] = pd.to_numeric(c_disp["Total Limit"], errors="coerce").fillna(0)
             c_disp["Current Limit"] = pd.to_numeric(c_disp["Current Limit"], errors="coerce").fillna(0)
             c_disp["Used Limit"] = c_disp["Total Limit"] - c_disp["Current Limit"]
-            
-            # Safe percentage calculation
             c_disp["Usage %"] = c_disp.apply(lambda r: f"{(r['Used Limit'] / r['Total Limit']) * 100:.2f}%" if r["Total Limit"] > 0 else "0.00%", axis=1)
-            
             disp_cols = [c for c in ["Card Name", "Total Limit", "Current Limit", "Used Limit", "Usage %", "Billing Date", "Due Date (Day)"] if c in c_disp.columns]
             st.dataframe(c_disp[disp_cols])
         else:
@@ -400,7 +403,6 @@ elif menu == "Master Settings":
         if not st.session_state.lic_loans.empty:
             st.dataframe(st.session_state.lic_loans)
             
-            # Edit Status / Mark as Paid directly from Master Settings
             edit_ll_status = st.selectbox("Select LIC/Loan to Update Status", st.session_state.lic_loans["Name / Policy No"], key="edit_ll_status_sel")
             new_ll_status = st.selectbox("Set Status", ["Pending", "Completed"], key="new_ll_status_val")
             if st.button("Update LIC/Loan Status"):
@@ -707,7 +709,6 @@ elif menu == "Special Transactions":
         if not st.session_state.lic_loans.empty and (not st.session_state.banks.empty or not st.session_state.cards.empty):
             ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"].tolist(), key="ll_pay_sel")
             
-            # Auto-fetch default installment amount from master
             matched_rows = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item]
             default_amt = 5000.0
             if not matched_rows.empty:
@@ -755,7 +756,6 @@ elif menu == "Special Transactions":
                             c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == ll_acc_card].index[0]
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
-                        # Mark status as Completed in Master
                         ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
                         st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
                             
