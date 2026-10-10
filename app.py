@@ -176,18 +176,22 @@ elif menu == "Dashboard":
             except:
                 pass
 
-    # RD / MF Due Alerts (Only triggers if Status is Pending)
+    # RD / MF Due Alerts (Bulletproof Logic)
     if not st.session_state.rd_mf.empty:
         for idx, row in st.session_state.rd_mf.iterrows():
             try:
-                if row.get("Status") == "Pending":
-                    freq = row.get("Frequency", "Monthly")
+                status_val = str(row.get("Status", "")).strip().capitalize()
+                if status_val == "Pending":
+                    freq = str(row.get("Frequency", "Monthly")).strip()
                     timing = str(row.get("Timing Value", ""))
+                    
                     if freq == "Monthly":
-                        due_day = int(''.join(filter(str.isdigit, timing)))
-                        days_left = due_day - current_day
-                        if 0 <= days_left <= 7:
-                            st.warning(f"🚨 **RD/MF Alert:** **{row['Name / Scheme']}** installment due in **{days_left} days** (Due on {due_day}th)!")
+                        digits = ''.join(filter(str.isdigit, timing))
+                        if digits:
+                            due_day = int(digits)
+                            days_left = due_day - current_day
+                            if 0 <= days_left <= 7:
+                                st.warning(f"🚨 **RD/MF Alert:** **{row['Name / Scheme']}** installment due in **{days_left} days** (Due on {due_day}th)!")
                     elif freq == "Yearly" and "-" in timing:
                         parts = timing.split("-")
                         due_m, due_d = int(parts[0]), int(parts[1])
@@ -195,7 +199,7 @@ elif menu == "Dashboard":
                             days_left = due_d - current_day
                             if 0 <= days_left <= 7:
                                 st.warning(f"🚨 **RD/MF Alert:** **{row['Name / Scheme']}** annual installment due in **{days_left} days**!")
-            except:
+            except Exception as e:
                 pass
 
     # Quick Summary Metrics
@@ -245,7 +249,7 @@ elif menu == "Dashboard":
         st.markdown("---")
         st.subheader("📈 RD / Mutual Funds Summary")
         df_rd_disp = st.session_state.rd_mf.copy()
-        df_rd_disp["Total Invested / Value"] = df_rd_disp["Opening Balance"] + df_rd_disp.apply(lambda r: r["Installment Amount"] if r["Status"] == "Completed" else 0.0, axis=1)
+        df_rd_disp["Total Invested / Value"] = df_rd_disp["Opening Balance"] + df_rd_disp.apply(lambda r: r["Installment Amount"] if str(r["Status"]).strip().capitalize() == "Completed" else 0.0, axis=1)
         st.dataframe(df_rd_disp)
 
     st.markdown("---")
@@ -428,7 +432,7 @@ elif menu == "Master Settings":
         st.write("### Existing RD / Mutual Funds")
         if not st.session_state.rd_mf.empty:
             df_rd_disp = st.session_state.rd_mf.copy()
-            df_rd_disp["Total Invested / Value"] = df_rd_disp["Opening Balance"] + df_rd_disp.apply(lambda r: r["Installment Amount"] if r["Status"] == "Completed" else 0.0, axis=1)
+            df_rd_disp["Total Invested / Value"] = df_rd_disp["Opening Balance"] + df_rd_disp.apply(lambda r: r["Installment Amount"] if str(r["Status"]).strip().capitalize() == "Completed" else 0.0, axis=1)
             st.dataframe(df_rd_disp)
             
             rd_action = st.radio("Choose Action for RD/MF", ["Delete Scheme", "Edit Scheme / Status"], key="rd_action_radio")
@@ -449,11 +453,11 @@ elif menu == "Master Settings":
                     with st.form("edit_rd_form"):
                         new_amt = st.number_input("Update Installment Amount", value=float(cur_row["Installment Amount"]))
                         new_opening = st.number_input("Update Opening Balance", value=float(cur_row["Opening Balance"]))
-                        new_status = st.selectbox("Update Status", ["Pending", "Completed"], index=0 if cur_row["Status"]=="Pending" else 1)
+                        new_status = st.selectbox("Update Status", ["Pending", "Completed"], index=0 if str(cur_row["Status"]).strip().capitalize()=="Pending" else 1)
                         sub_edit_rd = st.form_submit_button("Update Scheme")
                         
                         if sub_edit_rd:
-                            old_status = cur_row["Status"]
+                            old_status = str(cur_row["Status"]).strip().capitalize()
                             old_amt = cur_row["Installment Amount"]
                             linked_b = cur_row["Linked Bank"]
                             
@@ -747,7 +751,7 @@ elif menu == "Reports":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amt
                         elif mode == "Saving Bank Account" and acc_card in st.session_state.banks["Bank Name"].values:
                             b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == acc_card].index[0]
-                            st.session_state.banks.loc[b_idx, "Current Balance"] -= amt
+                            st.session_state.banks.loc[b_idx, "Current Balance"] += amt
                             
                     st.session_state.transactions = st.session_state.transactions.drop(del_idx).reset_index(drop=True)
                     save_data()
