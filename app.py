@@ -60,7 +60,7 @@ if "data_loaded" not in st.session_state:
 
     st.session_state.rd_mf = pd.DataFrame(saved_data.get("rd_mf", []))
     if st.session_state.rd_mf.empty:
-        st.session_state.rd_mf = pd.DataFrame(columns=["Name / Scheme", "Type", "Frequency", "Timing Value", "Linked Bank", "Amount", "Status", "Start Date"])
+        st.session_state.rd_mf = pd.DataFrame(columns=["Name / Scheme", "Type", "Frequency", "Timing Value", "Linked Bank", "Installment Amount", "Opening Balance", "Total Invested", "Status", "Start Date"])
         
     st.session_state.submenus = saved_data.get("submenus", {"Patna": ["Rent", "Office"], "Barhiya": ["Vegetable", "Fruit"], "Lakhisarai": ["General"], "Others": ["Misc"]})
     
@@ -370,6 +370,7 @@ elif menu == "Master Settings":
                 st.warning("Please add a Bank Account first.")
                 
             rd_amt = st.number_input("Installment / Contribution Amount", value=2000.0, key="rd_amt_in")
+            rd_opening = st.number_input("Opening Balance (Already Invested Amount)", value=0.0, key="rd_opening_in")
             rd_status = st.selectbox("Status", ["Pending", "Completed"], key="rd_status_in")
             rd_date = st.date_input("Start Date", value=current_ist_date, key="rd_date_in")
             
@@ -382,13 +383,14 @@ elif menu == "Master Settings":
                             "Frequency": rd_freq, 
                             "Timing Value": rd_timing, 
                             "Linked Bank": rd_bank, 
-                            "Amount": rd_amt, 
+                            "Installment Amount": rd_amt, 
+                            "Opening Balance": rd_opening, 
                             "Status": rd_status, 
                             "Start Date": str(rd_date)
                         }
                         st.session_state.rd_mf = pd.concat([st.session_state.rd_mf, pd.DataFrame([new_rd])], ignore_index=True)
                         
-                        # If completed on add, deduct from bank immediately
+                        # If completed on add, deduct installment amount from bank immediately
                         if rd_status == "Completed":
                             b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == rd_bank].index[0]
                             st.session_state.banks.loc[b_idx, "Current Balance"] -= rd_amt
@@ -403,7 +405,10 @@ elif menu == "Master Settings":
                     
         st.write("### Existing RD / Mutual Funds")
         if not st.session_state.rd_mf.empty:
-            st.dataframe(st.session_state.rd_mf)
+            # Calculate Total Value (Opening Balance + Installment if completed)
+            df_rd_disp = st.session_state.rd_mf.copy()
+            df_rd_disp["Total Invested / Value"] = df_rd_disp["Opening Balance"] + df_rd_disp.apply(lambda r: r["Installment Amount"] if r["Status"] == "Completed" else 0.0, axis=1)
+            st.dataframe(df_rd_disp)
             
             rd_action = st.radio("Choose Action for RD/MF", ["Delete Scheme", "Edit Scheme / Status"], key="rd_action_radio")
             
@@ -421,13 +426,14 @@ elif menu == "Master Settings":
                     cur_row = st.session_state.rd_mf.loc[r_idx]
                     
                     with st.form("edit_rd_form"):
-                        new_amt = st.number_input("Update Amount", value=float(cur_row["Amount"]))
+                        new_amt = st.number_input("Update Installment Amount", value=float(cur_row["Installment Amount"]))
+                        new_opening = st.number_input("Update Opening Balance", value=float(cur_row["Opening Balance"]))
                         new_status = st.selectbox("Update Status", ["Pending", "Completed"], index=0 if cur_row["Status"]=="Pending" else 1)
                         sub_edit_rd = st.form_submit_button("Update Scheme")
                         
                         if sub_edit_rd:
                             old_status = cur_row["Status"]
-                            old_amt = cur_row["Amount"]
+                            old_amt = cur_row["Installment Amount"]
                             linked_b = cur_row["Linked Bank"]
                             
                             # If status changed from Pending to Completed, deduct from bank
@@ -442,7 +448,8 @@ elif menu == "Master Settings":
                                     b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == linked_b].index[0]
                                     st.session_state.banks.loc[b_idx, "Current Balance"] -= diff
                                     
-                            st.session_state.rd_mf.loc[r_idx, "Amount"] = new_amt
+                            st.session_state.rd_mf.loc[r_idx, "Installment Amount"] = new_amt
+                            st.session_state.rd_mf.loc[r_idx, "Opening Balance"] = new_opening
                             st.session_state.rd_mf.loc[r_idx, "Status"] = new_status
                             save_data()
                             st.success(f"✅ Scheme '{edit_rd}' updated successfully! Bank balance adjusted.")
