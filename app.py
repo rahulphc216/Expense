@@ -56,7 +56,9 @@ if "data_loaded" not in st.session_state:
         
     st.session_state.lic_loans = pd.DataFrame(saved_data.get("lic_loans", []))
     if st.session_state.lic_loans.empty:
-        st.session_state.lic_loans = pd.DataFrame(columns=["Name / Policy No", "Type", "Total Amount / Sum Assured", "Frequency", "Due Date Value", "Installment / Premium"])
+        st.session_state.lic_loans = pd.DataFrame(columns=["Name / Policy No", "Type", "Total Amount / Sum Assured", "Frequency", "Due Date Value", "Installment / Premium", "Status"])
+    elif "Status" not in st.session_state.lic_loans.columns:
+        st.session_state.lic_loans["Status"] = "Pending"
 
     st.session_state.rd_mf = pd.DataFrame(saved_data.get("rd_mf", []))
     if st.session_state.rd_mf.empty:
@@ -169,23 +171,28 @@ elif menu == "Dashboard":
             except:
                 pass
                 
-    # LIC / Loans Alerts
+    # LIC / Loans Alerts (Only if Status is Pending)
     if not st.session_state.lic_loans.empty:
+        if "Status" not in st.session_state.lic_loans.columns:
+            st.session_state.lic_loans["Status"] = "Pending"
+            
         for idx, row in st.session_state.lic_loans.iterrows():
             try:
-                freq = row.get("Frequency", "Monthly")
-                if freq == "Monthly":
-                    due_day = int(row["Due Date Value"])
-                    days_left = due_day - current_day
-                    if 0 <= days_left <= 7:
-                        st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** payment due in **{days_left} days** (Due on {due_day}th)!")
-                elif freq == "Yearly":
-                    parts = row["Due Date Value"].split("-")
-                    due_m, due_d = int(parts[0]), int(parts[1])
-                    if due_m == current_month:
-                        days_left = due_d - current_day
+                status_val = str(row.get("Status", "Pending")).strip().capitalize()
+                if status_val == "Pending":
+                    freq = row.get("Frequency", "Monthly")
+                    if freq == "Monthly":
+                        due_day = int(row["Due Date Value"])
+                        days_left = due_day - current_day
                         if 0 <= days_left <= 7:
-                            st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** annual payment due in **{days_left} days**!")
+                            st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** payment due in **{days_left} days** (Due on {due_day}th)!")
+                    elif freq == "Yearly":
+                        parts = row["Due Date Value"].split("-")
+                        due_m, due_d = int(parts[0]), int(parts[1])
+                        if due_m == current_month:
+                            days_left = due_d - current_day
+                            if 0 <= days_left <= 7:
+                                st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** annual payment due in **{days_left} days**!")
             except:
                 pass
 
@@ -248,9 +255,13 @@ elif menu == "Dashboard":
         st.subheader("💳 Individual Credit Cards List")
         if not st.session_state.cards.empty:
             c_disp = st.session_state.cards.copy()
+            c_disp["Total Limit"] = pd.to_numeric(c_disp["Total Limit"], errors="coerce").fillna(0)
+            c_disp["Current Limit"] = pd.to_numeric(c_disp["Current Limit"], errors="coerce").fillna(0)
             c_disp["Used Limit"] = c_disp["Total Limit"] - c_disp["Current Limit"]
-            c_disp["Usage %"] = (c_disp["Used Limit"] / c_disp["Total Limit"]) * 100
-            c_disp["Usage %"] = c_disp["Usage %"].round(2).astype(str) + "%"
+            
+            # Safe percentage calculation
+            c_disp["Usage %"] = c_disp.apply(lambda r: f"{(r['Used Limit'] / r['Total Limit']) * 100:.2f}%" if r["Total Limit"] > 0 else "0.00%", axis=1)
+            
             disp_cols = [c for c in ["Card Name", "Total Limit", "Current Limit", "Used Limit", "Usage %", "Billing Date", "Due Date (Day)"] if c in c_disp.columns]
             st.dataframe(c_disp[disp_cols])
         else:
@@ -339,9 +350,10 @@ elif menu == "Master Settings":
         st.write("### Existing Credit Cards")
         if not st.session_state.cards.empty and "Card Name" in st.session_state.cards.columns:
             c_disp = st.session_state.cards.copy()
+            c_disp["Total Limit"] = pd.to_numeric(c_disp["Total Limit"], errors="coerce").fillna(0)
+            c_disp["Current Limit"] = pd.to_numeric(c_disp["Current Limit"], errors="coerce").fillna(0)
             c_disp["Used Limit"] = c_disp["Total Limit"] - c_disp["Current Limit"]
-            c_disp["Usage %"] = (c_disp["Used Limit"] / c_disp["Total Limit"]) * 100
-            c_disp["Usage %"] = c_disp["Usage %"].round(2).astype(str) + "%"
+            c_disp["Usage %"] = c_disp.apply(lambda r: f"{(r['Used Limit'] / r['Total Limit']) * 100:.2f}%" if r["Total Limit"] > 0 else "0.00%", axis=1)
             disp_cols = [c for c in ["Card Name", "Total Limit", "Current Limit", "Used Limit", "Usage %", "Billing Date", "Due Date (Day)"] if c in c_disp.columns]
             st.dataframe(c_disp[disp_cols])
             
@@ -369,11 +381,12 @@ elif menu == "Master Settings":
                 ll_due_val = f"{due_month:02d}-{due_day:02d}"
 
             ll_installment = st.number_input("Installment / Premium Amount", value=5000.0, key="ll_inst_in")
+            ll_status = st.selectbox("Status", ["Pending", "Completed"], key="ll_status_in")
             
             if st.button("Save LIC / Loan"):
                 if ll_name:
                     if ll_name not in st.session_state.lic_loans["Name / Policy No"].values:
-                        new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Frequency": ll_freq, "Due Date Value": ll_due_val, "Installment / Premium": ll_installment}
+                        new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Frequency": ll_freq, "Due Date Value": ll_due_val, "Installment / Premium": ll_installment, "Status": ll_status}
                         st.session_state.lic_loans = pd.concat([st.session_state.lic_loans, pd.DataFrame([new_ll])], ignore_index=True)
                         save_data()
                         st.success(f"✅ {ll_type} added successfully!")
@@ -386,6 +399,17 @@ elif menu == "Master Settings":
         st.write("### Existing LIC & Loans")
         if not st.session_state.lic_loans.empty:
             st.dataframe(st.session_state.lic_loans)
+            
+            # Edit Status / Mark as Paid directly from Master Settings
+            edit_ll_status = st.selectbox("Select LIC/Loan to Update Status", st.session_state.lic_loans["Name / Policy No"], key="edit_ll_status_sel")
+            new_ll_status = st.selectbox("Set Status", ["Pending", "Completed"], key="new_ll_status_val")
+            if st.button("Update LIC/Loan Status"):
+                idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == edit_ll_status].index[0]
+                st.session_state.lic_loans.loc[idx, "Status"] = new_ll_status
+                save_data()
+                st.success(f"✅ Status for '{edit_ll_status}' updated to {new_ll_status}!")
+                st.rerun()
+
             del_ll = st.selectbox("Select LIC/Loan to Delete", st.session_state.lic_loans["Name / Policy No"], key="del_ll_key")
             if st.button("Delete LIC/Loan"):
                 st.session_state.lic_loans = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] != del_ll]
@@ -683,7 +707,7 @@ elif menu == "Special Transactions":
         if not st.session_state.lic_loans.empty and (not st.session_state.banks.empty or not st.session_state.cards.empty):
             ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"].tolist(), key="ll_pay_sel")
             
-            # Exact matching & dynamic session state handling to prevent amount caching bugs
+            # Auto-fetch default installment amount from master
             matched_rows = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item]
             default_amt = 5000.0
             if not matched_rows.empty:
@@ -711,29 +735,42 @@ elif menu == "Special Transactions":
                     
             amount = st.number_input("Installment Amount Paid", value=default_amt, key="ll_amt_pay")
             
-            if st.button("Pay Installment (Clears Alert)"):
-                can_pay = True
-                if ll_mode == "Saving Bank Account" and not ll_acc_card:
-                    can_pay = False
-                    st.error("Please select a valid Bank Account.")
-                elif ll_mode == "Credit Card" and not ll_acc_card:
-                    can_pay = False
-                    st.error("Please select a valid Credit Card.")
-                    
-                if can_pay:
-                    acc_val = ll_acc_card if ll_acc_card else "Cash"
-                    if ll_mode == "Saving Bank Account" and ll_acc_card:
-                        b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == ll_acc_card].index[0]
-                        st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
-                    elif ll_mode == "Credit Card" and ll_acc_card:
-                        c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == ll_acc_card].index[0]
-                        st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                if st.button("Pay Installment (Updates Balance & Status)"):
+                    can_pay = True
+                    if ll_mode == "Saving Bank Account" and not ll_acc_card:
+                        can_pay = False
+                        st.error("Please select a valid Bank Account.")
+                    elif ll_mode == "Credit Card" and not ll_acc_card:
+                        can_pay = False
+                        st.error("Please select a valid Credit Card.")
                         
-                    log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, ll_mode, acc_val, amount, f"Installment paid for {ll_item}")
-                    
+                    if can_pay:
+                        acc_val = ll_acc_card if ll_acc_card else "Cash"
+                        if ll_mode == "Saving Bank Account" and ll_acc_card:
+                            b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == ll_acc_card].index[0]
+                            st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
+                        elif ll_mode == "Credit Card" and ll_acc_card:
+                            c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == ll_acc_card].index[0]
+                            st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
+                            
+                        # Mark status as Completed in Master
+                        ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
+                        st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
+                            
+                        log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, ll_mode, acc_val, amount, f"Installment paid for {ll_item}")
+                        
+                        save_data()
+                        st.success(f"✅ Installment paid for {ll_item} via {acc_val} & Status set to Completed!")
+                        st.balloons()
+            with col_p2:
+                if st.button("Mark as Paid (Remove Alert Only)"):
+                    ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
+                    st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
                     save_data()
-                    st.success(f"✅ Installment paid for {ll_item} via {acc_val} (Amount: Rs. {amount:,.2f})!")
-                    st.balloons()
+                    st.success(f"✅ '{ll_item}' marked as Completed and alert removed!")
+                    st.rerun()
         else:
             st.warning("Please add Bank Accounts/Credit Cards and LIC/Loans in Master Settings first.")
 
