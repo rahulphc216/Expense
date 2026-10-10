@@ -117,6 +117,21 @@ def add_years(sourcedate, years):
     except ValueError:
         return sourcedate.replace(year=sourcedate.year + years, month=2, day=28)
 
+def rollover_lic_loan(idx):
+    freq = str(st.session_state.lic_loans.loc[idx, "Frequency"]).strip()
+    due_val = str(st.session_state.lic_loans.loc[idx, "Due Date Value"]).strip()
+    try:
+        d_parts = due_val.split("-")
+        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+        if freq == "Monthly":
+            new_due_date = add_months(curr_due_date, 1)
+        else:
+            new_due_date = add_years(curr_due_date, 1)
+        st.session_state.lic_loans.loc[idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
+        st.session_state.lic_loans.loc[idx, "Status"] = "Pending"
+    except Exception as e:
+        st.error(f"Error rolling over date: {e}")
+
 # --- Sidebar Navigation ---
 st.sidebar.title("Finance Manager")
 menu = st.sidebar.selectbox("Navigation", ["Add Expense", "Dashboard", "Master Settings", "Add Income", "Special Transactions", "Reports"])
@@ -189,7 +204,7 @@ elif menu == "Dashboard":
             except:
                 pass
                 
-    # LIC / Loans Alerts (Auto-Rollover Check)
+    # LIC / Loans Alerts
     if not st.session_state.lic_loans.empty:
         if "Status" not in st.session_state.lic_loans.columns:
             st.session_state.lic_loans["Status"] = "Pending"
@@ -199,7 +214,6 @@ elif menu == "Dashboard":
                 status_val = str(row.get("Status", "Pending")).strip().capitalize()
                 if status_val == "Pending":
                     due_val = str(row.get("Due Date Value", "")).strip()
-                    
                     if "-" in due_val:
                         parts = due_val.split("-")
                         d_day, d_mon, d_yr = int(parts[0]), int(parts[1]), int(parts[2])
@@ -414,28 +428,14 @@ elif menu == "Master Settings":
             new_ll_status = st.selectbox("Set Status", ["Pending", "Completed"], key="new_ll_status_val")
             if st.button("Update LIC/Loan Status"):
                 idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == edit_ll_status].index[0]
+                st.session_state.lic_loans.loc[idx, "Status"] = new_ll_status
                 
-                # Auto rollover if changing to Completed or if already completed and updating
-                freq = str(st.session_state.lic_loans.loc[idx, "Frequency"]).strip()
-                due_val = str(st.session_state.lic_loans.loc[idx, "Due Date Value"]).strip()
-                
+                # Auto rollover ONLY if status is set to Completed
                 if new_ll_status == "Completed":
-                    try:
-                        d_parts = due_val.split("-")
-                        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-                        if freq == "Monthly":
-                            new_due_date = add_months(curr_due_date, 1)
-                        else:
-                            new_due_date = add_years(curr_due_date, 1)
-                        st.session_state.lic_loans.loc[idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
-                    except:
-                        pass
-                    st.session_state.lic_loans.loc[idx, "Status"] = "Pending" # Reset back to Pending for next cycle
-                else:
-                    st.session_state.lic_loans.loc[idx, "Status"] = new_ll_status
+                    rollover_lic_loan(idx)
                             
                 save_data()
-                st.success(f"✅ Status for '{edit_ll_status}' updated and next due date rolled over!")
+                st.success(f"✅ Status updated successfully!")
                 st.rerun()
 
             del_ll = st.selectbox("Select LIC/Loan to Delete", st.session_state.lic_loans["Name / Policy No"], key="del_ll_key")
@@ -793,19 +793,7 @@ elif menu == "Special Transactions":
                         ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
                         st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
                         
-                        freq = str(st.session_state.lic_loans.loc[ll_idx, "Frequency"]).strip()
-                        due_val = str(st.session_state.lic_loans.loc[ll_idx, "Due Date Value"]).strip()
-                        try:
-                            d_parts = due_val.split("-")
-                            curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-                            if freq == "Monthly":
-                                new_due_date = add_months(curr_due_date, 1)
-                            else:
-                                new_due_date = add_years(curr_due_date, 1)
-                            st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
-                            st.session_state.lic_loans.loc[ll_idx, "Status"] = "Pending"
-                        except:
-                            pass
+                        rollover_lic_loan(ll_idx)
                             
                         log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, ll_mode, acc_val, amount, f"Installment paid for {ll_item}")
                         
@@ -817,19 +805,7 @@ elif menu == "Special Transactions":
                     ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
                     st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
                     
-                    freq = str(st.session_state.lic_loans.loc[ll_idx, "Frequency"]).strip()
-                    due_val = str(st.session_state.lic_loans.loc[ll_idx, "Due Date Value"]).strip()
-                    try:
-                        d_parts = due_val.split("-")
-                        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-                        if freq == "Monthly":
-                            new_due_date = add_months(curr_due_date, 1)
-                        else:
-                            new_due_date = add_years(curr_due_date, 1)
-                        st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
-                        st.session_state.lic_loans.loc[ll_idx, "Status"] = "Pending"
-                    except:
-                        pass
+                    rollover_lic_loan(ll_idx)
 
                     save_data()
                     st.success(f"✅ '{ll_item}' marked as Completed and next due updated!")
