@@ -60,7 +60,7 @@ if "data_loaded" not in st.session_state:
 
     st.session_state.rd_mf = pd.DataFrame(saved_data.get("rd_mf", []))
     if st.session_state.rd_mf.empty:
-        st.session_state.rd_mf = pd.DataFrame(columns=["Name / Scheme", "Type", "Total Invested", "Current Value", "Start Date"])
+        st.session_state.rd_mf = pd.DataFrame(columns=["Name / Scheme", "Type", "Frequency", "Timing Value", "Linked Bank", "Amount", "Status", "Start Date"])
         
     st.session_state.submenus = saved_data.get("submenus", {"Patna": ["Rent", "Office"], "Barhiya": ["Vegetable", "Fruit"], "Lakhisarai": ["General"], "Others": ["Misc"]})
     
@@ -345,33 +345,67 @@ elif menu == "Master Settings":
                 st.rerun()
 
     with tab4:
-        st.subheader("Manage RD & Mutual Funds (Add / Edit / Delete)")
+        st.subheader("Manage RD & Mutual Funds (Add / Edit / Delete / Status Update)")
         
         with st.expander("➕ Click here to Add New RD / MF Scheme"):
             rd_name = st.text_input("Scheme / Fund Name", key="rd_name_in")
             rd_type = st.selectbox("Type", ["RD", "Mutual Fund"], key="rd_type_in")
-            rd_inv = st.number_input("Initial / Total Invested Amount", value=5000.0, key="rd_inv_in")
-            rd_val = st.number_input("Current Value / Balance", value=5000.0, key="rd_val_in")
+            rd_freq = st.selectbox("Frequency", ["Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly"], key="rd_freq_in")
+            
+            # Dynamic timing inputs
+            if rd_freq == "Monthly":
+                rd_timing = f"Day {st.number_input('Due Day of Month (1-31)', min_value=1, max_value=31, value=10, key='rd_m_day')}"
+            elif rd_freq == "Yearly":
+                col_m, col_d = st.columns(2)
+                rd_month = col_m.selectbox("Due Month", list(range(1, 13)), format_func=lambda x: datetime(2000, x, 1).strftime('%B'), key="rd_y_month")
+                rd_day = col_d.number_input("Due Day", min_value=1, max_value=31, value=10, key="rd_y_day")
+                rd_timing = f"{rd_month:02d}-{rd_day:02d}"
+            else:
+                rd_timing = "N/A"
+                
+            if not st.session_state.banks.empty:
+                rd_bank = st.selectbox("Linked Bank Account (Deduction Source)", st.session_state.banks["Bank Name"], key="rd_bank_in")
+            else:
+                rd_bank = "None"
+                st.warning("Please add a Bank Account first.")
+                
+            rd_amt = st.number_input("Installment / Contribution Amount", value=2000.0, key="rd_amt_in")
+            rd_status = st.selectbox("Status", ["Pending", "Completed"], key="rd_status_in")
             rd_date = st.date_input("Start Date", value=current_ist_date, key="rd_date_in")
             
-            if st.button("Save RD / MF"):
-                if rd_name:
+            if st.button("Save RD / MF Scheme"):
+                if rd_name and rd_bank != "None":
                     if rd_name not in st.session_state.rd_mf["Name / Scheme"].values:
-                        new_rd = {"Name / Scheme": rd_name, "Type": rd_type, "Total Invested": rd_inv, "Current Value": rd_val, "Start Date": str(rd_date)}
+                        new_rd = {
+                            "Name / Scheme": rd_name, 
+                            "Type": rd_type, 
+                            "Frequency": rd_freq, 
+                            "Timing Value": rd_timing, 
+                            "Linked Bank": rd_bank, 
+                            "Amount": rd_amt, 
+                            "Status": rd_status, 
+                            "Start Date": str(rd_date)
+                        }
                         st.session_state.rd_mf = pd.concat([st.session_state.rd_mf, pd.DataFrame([new_rd])], ignore_index=True)
+                        
+                        # If completed on add, deduct from bank immediately
+                        if rd_status == "Completed":
+                            b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == rd_bank].index[0]
+                            st.session_state.banks.loc[b_idx, "Current Balance"] -= rd_amt
+                            
                         save_data()
                         st.success(f"✅ RD / MF scheme '{rd_name}' added successfully!")
                         st.balloons()
                     else:
                         st.warning("Scheme already exists!")
                 else:
-                    st.error("Please enter a valid Scheme Name.")
+                    st.error("Please enter a valid Scheme Name and select a Bank Account.")
                     
         st.write("### Existing RD / Mutual Funds")
         if not st.session_state.rd_mf.empty:
             st.dataframe(st.session_state.rd_mf)
             
-            rd_action = st.radio("Choose Action for RD/MF", ["Delete Scheme", "Edit Scheme"], key="rd_action_radio")
+            rd_action = st.radio("Choose Action for RD/MF", ["Delete Scheme", "Edit Scheme / Status"], key="rd_action_radio")
             
             if rd_action == "Delete Scheme":
                 del_rd = st.selectbox("Select Scheme to Delete", st.session_state.rd_mf["Name / Scheme"], key="del_rd_key")
@@ -380,22 +414,38 @@ elif menu == "Master Settings":
                     save_data()
                     st.success("✅ Scheme deleted successfully!")
                     st.rerun()
-            elif rd_action == "Edit Scheme":
+            elif rd_action == "Edit Scheme / Status":
                 edit_rd = st.selectbox("Select Scheme to Edit", st.session_state.rd_mf["Name / Scheme"], key="edit_rd_key")
                 if edit_rd in st.session_state.rd_mf["Name / Scheme"].values:
                     r_idx = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == edit_rd].index[0]
                     cur_row = st.session_state.rd_mf.loc[r_idx]
                     
                     with st.form("edit_rd_form"):
-                        new_inv = st.number_input("Update Total Invested", value=float(cur_row["Total Invested"]))
-                        new_val = st.number_input("Update Current Value", value=float(cur_row["Current Value"]))
+                        new_amt = st.number_input("Update Amount", value=float(cur_row["Amount"]))
+                        new_status = st.selectbox("Update Status", ["Pending", "Completed"], index=0 if cur_row["Status"]=="Pending" else 1)
                         sub_edit_rd = st.form_submit_button("Update Scheme")
                         
                         if sub_edit_rd:
-                            st.session_state.rd_mf.loc[r_idx, "Total Invested"] = new_inv
-                            st.session_state.rd_mf.loc[r_idx, "Current Value"] = new_val
+                            old_status = cur_row["Status"]
+                            old_amt = cur_row["Amount"]
+                            linked_b = cur_row["Linked Bank"]
+                            
+                            # If status changed from Pending to Completed, deduct from bank
+                            if old_status == "Pending" and new_status == "Completed":
+                                if linked_b in st.session_state.banks["Bank Name"].values:
+                                    b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == linked_b].index[0]
+                                    st.session_state.banks.loc[b_idx, "Current Balance"] -= new_amt
+                            # If amount changed while completed, adjust difference
+                            elif old_status == "Completed" and new_status == "Completed" and old_amt != new_amt:
+                                diff = new_amt - old_amt
+                                if linked_b in st.session_state.banks["Bank Name"].values:
+                                    b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == linked_b].index[0]
+                                    st.session_state.banks.loc[b_idx, "Current Balance"] -= diff
+                                    
+                            st.session_state.rd_mf.loc[r_idx, "Amount"] = new_amt
+                            st.session_state.rd_mf.loc[r_idx, "Status"] = new_status
                             save_data()
-                            st.success(f"✅ Scheme '{edit_rd}' updated successfully!")
+                            st.success(f"✅ Scheme '{edit_rd}' updated successfully! Bank balance adjusted.")
                             st.balloons()
 
     with tab5:
@@ -473,9 +523,9 @@ elif menu == "Add Income":
 
 # ==================== 5. SPECIAL TRANSACTIONS ====================
 elif menu == "Special Transactions":
-    st.header("🔄 Special Transactions (Payments, Transfers & Investments)")
+    st.header("🔄 Special Transactions (Payments & Transfers)")
     
-    st_type = st.selectbox("Transaction Type", ["Lent / Borrow (Udhar)", "Self-Transfer Between Accounts", "Transfer to RD/MF", "Credit Card Bill Payment", "LIC / Loan Installment Payment"])
+    st_type = st.selectbox("Transaction Type", ["Lent / Borrow (Udhar)", "Self-Transfer Between Accounts", "Credit Card Bill Payment", "LIC / Loan Installment Payment"])
     
     if st_type == "Lent / Borrow (Udhar)":
         st.subheader("🤝 Lent / Borrow (Udhar)")
@@ -544,29 +594,6 @@ elif menu == "Special Transactions":
                 save_data()
                 st.success("✅ Self-transfer completed successfully!")
                 st.balloons()
-
-    elif st_type == "Transfer to RD/MF":
-        st.subheader("📈 Transfer to RD / Mutual Fund")
-        if not st.session_state.banks.empty and not st.session_state.rd_mf.empty:
-            rd_date = st.date_input("Date", value=current_ist_date, key="rd_t_date")
-            bank_name = st.selectbox("Pay via Bank Account", st.session_state.banks["Bank Name"], key="rd_t_bank")
-            scheme_name = st.selectbox("Select RD / MF Scheme", st.session_state.rd_mf["Name / Scheme"], key="rd_t_scheme")
-            amount = st.number_input("Investment Amount", value=2000.0, key="rd_t_amt")
-            note = st.text_input("Note / Folio Detail", key="rd_t_note")
-            
-            if st.button("Transfer & Update Investment"):
-                b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
-                r_idx = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == scheme_name].index[0]
-                
-                st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
-                st.session_state.rd_mf.loc[r_idx, "Total Invested"] += amount
-                st.session_state.rd_mf.loc[r_idx, "Current Value"] += amount
-                
-                save_data()
-                st.success(f"✅ Transferred Rs. {amount} to {scheme_name} via {bank_name} successfully! (Not an expense)")
-                st.balloons()
-        else:
-            st.warning("Please add at least one Bank Account and one RD/MF scheme in Master Settings first.")
 
     elif st_type == "Credit Card Bill Payment":
         st.subheader("💳 Credit Card Bill Payment")
