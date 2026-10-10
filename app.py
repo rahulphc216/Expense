@@ -20,6 +20,7 @@ def load_data():
         "banks": [{"Bank Name": "PNB", "Account Type": "Current/OD", "Opening Balance": 66634.72, "Current Balance": 66634.72, "Is OD": True, "OD Limit": 211000.0}],
         "cards": [],
         "lic_loans": [],
+        "rd_mf": [],
         "submenus": {
             "Patna": ["Rent", "Office"],
             "Barhiya": ["Vegetable", "Fruit"],
@@ -34,6 +35,7 @@ def save_data():
         "banks": st.session_state.banks.to_dict(orient="records"),
         "cards": st.session_state.cards.to_dict(orient="records"),
         "lic_loans": st.session_state.lic_loans.to_dict(orient="records"),
+        "rd_mf": st.session_state.rd_mf.to_dict(orient="records"),
         "submenus": st.session_state.submenus,
         "transactions": st.session_state.transactions.to_dict(orient="records")
     }
@@ -55,6 +57,10 @@ if "data_loaded" not in st.session_state:
     st.session_state.lic_loans = pd.DataFrame(saved_data.get("lic_loans", []))
     if st.session_state.lic_loans.empty:
         st.session_state.lic_loans = pd.DataFrame(columns=["Name / Policy No", "Type", "Total Amount / Sum Assured", "Frequency", "Due Date Value", "Installment / Premium"])
+
+    st.session_state.rd_mf = pd.DataFrame(saved_data.get("rd_mf", []))
+    if st.session_state.rd_mf.empty:
+        st.session_state.rd_mf = pd.DataFrame(columns=["Name / Scheme", "Type", "Total Invested", "Current Value", "Start Date"])
         
     st.session_state.submenus = saved_data.get("submenus", {"Patna": ["Rent", "Office"], "Barhiya": ["Vegetable", "Fruit"], "Lakhisarai": ["General"], "Others": ["Misc"]})
     
@@ -213,6 +219,11 @@ elif menu == "Dashboard":
         st.subheader("📑 LIC Policies & Loans Summary")
         st.dataframe(st.session_state.lic_loans)
 
+    if not st.session_state.rd_mf.empty:
+        st.markdown("---")
+        st.subheader("📈 RD / Mutual Funds Summary")
+        st.dataframe(st.session_state.rd_mf)
+
     st.markdown("---")
     st.subheader("📋 Recent Transactions")
     if not st.session_state.transactions.empty:
@@ -226,7 +237,7 @@ elif menu == "Dashboard":
 elif menu == "Master Settings":
     st.header("⚙️ Master Settings (Add/Edit/Delete)")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["Bank Accounts", "Credit Cards", "LIC / Loans", "Location Submenus"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Bank Accounts", "Credit Cards", "LIC / Loans", "RD / MF", "Location Submenus"])
     
     with tab1:
         st.subheader("Manage Bank Accounts")
@@ -334,6 +345,38 @@ elif menu == "Master Settings":
                 st.rerun()
 
     with tab4:
+        st.subheader("Manage RD & Mutual Funds")
+        with st.expander("➕ Click here to Add New RD / MF Scheme"):
+            rd_name = st.text_input("Scheme / Fund Name", key="rd_name_in")
+            rd_type = st.selectbox("Type", ["RD", "Mutual Fund"], key="rd_type_in")
+            rd_inv = st.number_input("Initial / Total Invested Amount", value=5000.0, key="rd_inv_in")
+            rd_val = st.number_input("Current Value / Balance", value=5000.0, key="rd_val_in")
+            rd_date = st.date_input("Start Date", value=current_ist_date, key="rd_date_in")
+            
+            if st.button("Save RD / MF"):
+                if rd_name:
+                    if rd_name not in st.session_state.rd_mf["Name / Scheme"].values:
+                        new_rd = {"Name / Scheme": rd_name, "Type": rd_type, "Total Invested": rd_inv, "Current Value": rd_val, "Start Date": str(rd_date)}
+                        st.session_state.rd_mf = pd.concat([st.session_state.rd_mf, pd.DataFrame([new_rd])], ignore_index=True)
+                        save_data()
+                        st.success(f"✅ RD / MF scheme '{rd_name}' added successfully!")
+                        st.balloons()
+                    else:
+                        st.warning("Scheme already exists!")
+                else:
+                    st.error("Please enter a valid Scheme Name.")
+                    
+        st.write("### Existing RD / Mutual Funds")
+        if not st.session_state.rd_mf.empty:
+            st.dataframe(st.session_state.rd_mf)
+            del_rd = st.selectbox("Select Scheme to Delete", st.session_state.rd_mf["Name / Scheme"], key="del_rd_key")
+            if st.button("Delete Scheme"):
+                st.session_state.rd_mf = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] != del_rd]
+                save_data()
+                st.success("✅ Scheme deleted successfully!")
+                st.rerun()
+
+    with tab5:
         st.subheader("Manage Location Submenus")
         loc_choice = st.selectbox("Select Location", ["Patna", "Barhiya", "Lakhisarai", "Others"], key="loc_sub_sel")
         with st.expander("➕ Click here to Add New Submenu"):
@@ -408,9 +451,9 @@ elif menu == "Add Income":
 
 # ==================== 5. SPECIAL TRANSACTIONS ====================
 elif menu == "Special Transactions":
-    st.header("🔄 Special Transactions (Payments & Transfers)")
+    st.header("🔄 Special Transactions (Payments, Transfers & Investments)")
     
-    st_type = st.selectbox("Transaction Type", ["Lent / Borrow (Udhar)", "Self-Transfer Between Accounts", "Credit Card Bill Payment", "LIC / Loan Installment Payment"])
+    st_type = st.selectbox("Transaction Type", ["Lent / Borrow (Udhar)", "Self-Transfer Between Accounts", "Transfer to RD/MF", "Credit Card Bill Payment", "LIC / Loan Installment Payment"])
     
     if st_type == "Lent / Borrow (Udhar)":
         st.subheader("🤝 Lent / Borrow (Udhar)")
@@ -479,6 +522,31 @@ elif menu == "Special Transactions":
                 save_data()
                 st.success("✅ Self-transfer completed successfully!")
                 st.balloons()
+
+    elif st_type == "Transfer to RD/MF":
+        st.subheader("📈 Transfer to RD / Mutual Fund")
+        if not st.session_state.banks.empty and not st.session_state.rd_mf.empty:
+            rd_date = st.date_input("Date", value=current_ist_date, key="rd_t_date")
+            bank_name = st.selectbox("Pay via Bank Account", st.session_state.banks["Bank Name"], key="rd_t_bank")
+            scheme_name = st.selectbox("Select RD / MF Scheme", st.session_state.rd_mf["Name / Scheme"], key="rd_t_scheme")
+            amount = st.number_input("Investment Amount", value=2000.0, key="rd_t_amt")
+            note = st.text_input("Note / Folio Detail", key="rd_t_note")
+            
+            if st.button("Transfer & Update Investment"):
+                b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
+                r_idx = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == scheme_name].index[0]
+                
+                # Deduct from bank
+                st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
+                # Add to RD/MF total invested and current value
+                st.session_state.rd_mf.loc[r_idx, "Total Invested"] += amount
+                st.session_state.rd_mf.loc[r_idx, "Current Value"] += amount
+                
+                save_data()
+                st.success(f"✅ Transferred Rs. {amount} to {scheme_name} via {bank_name} successfully! (Not an expense)")
+                st.balloons()
+        else:
+            st.warning("Please add at least one Bank Account and one RD/MF scheme in Master Settings first.")
 
     elif st_type == "Credit Card Bill Payment":
         st.subheader("💳 Credit Card Bill Payment")
