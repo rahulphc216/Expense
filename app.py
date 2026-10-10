@@ -13,7 +13,19 @@ def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                # Auto-normalize old date formats in lic_loans if present
+                if "lic_loans" in data:
+                    for row in data["lic_loans"]:
+                        val = str(row.get("Due Date Value", ""))
+                        if "-" in val and len(val.split("-")) == 2:
+                            # Old format MM-DD (e.g. 10-10 or 04-26) -> convert to DD-MM-2026
+                            parts = val.split("-")
+                            row["Due Date Value"] = f"12-{parts[0]}-2026"
+                        elif val.isdigit() and len(val) <= 2:
+                            # Old monthly day format -> convert to DD-10-2026
+                            row["Due Date Value"] = f"{int(val):02d}-10-2026"
+                return data
         except:
             pass
     return {
@@ -189,7 +201,7 @@ elif menu == "Dashboard":
             except:
                 pass
                 
-    # LIC / Loans Alerts (Precise Date-Based Rollover Logic)
+    # LIC / Loans Alerts (Robust Date Parsing & Rollover)
     if not st.session_state.lic_loans.empty:
         if "Status" not in st.session_state.lic_loans.columns:
             st.session_state.lic_loans["Status"] = "Pending"
@@ -531,7 +543,6 @@ elif menu == "Master Settings":
                                     st.session_state.banks.loc[b_idx, "Current Balance"] -= new_amt
                                     log_transaction(current_ist_date, "Investment (RD/MF)", "N/A", edit_rd, "Saving Bank Account", linked_b, new_amt, f"Installment Completed for {edit_rd}")
                                     
-                                    # Rollover date for RD/MF
                                     try:
                                         d_val = str(cur_row["Timing Value"])
                                         d_parts = d_val.split("-")
