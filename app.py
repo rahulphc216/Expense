@@ -345,7 +345,8 @@ elif menu == "Master Settings":
                 st.rerun()
 
     with tab4:
-        st.subheader("Manage RD & Mutual Funds")
+        st.subheader("Manage RD & Mutual Funds (Add / Edit / Delete)")
+        
         with st.expander("➕ Click here to Add New RD / MF Scheme"):
             rd_name = st.text_input("Scheme / Fund Name", key="rd_name_in")
             rd_type = st.selectbox("Type", ["RD", "Mutual Fund"], key="rd_type_in")
@@ -369,12 +370,33 @@ elif menu == "Master Settings":
         st.write("### Existing RD / Mutual Funds")
         if not st.session_state.rd_mf.empty:
             st.dataframe(st.session_state.rd_mf)
-            del_rd = st.selectbox("Select Scheme to Delete", st.session_state.rd_mf["Name / Scheme"], key="del_rd_key")
-            if st.button("Delete Scheme"):
-                st.session_state.rd_mf = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] != del_rd]
-                save_data()
-                st.success("✅ Scheme deleted successfully!")
-                st.rerun()
+            
+            rd_action = st.radio("Choose Action for RD/MF", ["Delete Scheme", "Edit Scheme"], key="rd_action_radio")
+            
+            if rd_action == "Delete Scheme":
+                del_rd = st.selectbox("Select Scheme to Delete", st.session_state.rd_mf["Name / Scheme"], key="del_rd_key")
+                if st.button("Delete Selected Scheme"):
+                    st.session_state.rd_mf = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] != del_rd]
+                    save_data()
+                    st.success("✅ Scheme deleted successfully!")
+                    st.rerun()
+            elif rd_action == "Edit Scheme":
+                edit_rd = st.selectbox("Select Scheme to Edit", st.session_state.rd_mf["Name / Scheme"], key="edit_rd_key")
+                if edit_rd in st.session_state.rd_mf["Name / Scheme"].values:
+                    r_idx = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == edit_rd].index[0]
+                    cur_row = st.session_state.rd_mf.loc[r_idx]
+                    
+                    with st.form("edit_rd_form"):
+                        new_inv = st.number_input("Update Total Invested", value=float(cur_row["Total Invested"]))
+                        new_val = st.number_input("Update Current Value", value=float(cur_row["Current Value"]))
+                        sub_edit_rd = st.form_submit_button("Update Scheme")
+                        
+                        if sub_edit_rd:
+                            st.session_state.rd_mf.loc[r_idx, "Total Invested"] = new_inv
+                            st.session_state.rd_mf.loc[r_idx, "Current Value"] = new_val
+                            save_data()
+                            st.success(f"✅ Scheme '{edit_rd}' updated successfully!")
+                            st.balloons()
 
     with tab5:
         st.subheader("Manage Location Submenus")
@@ -536,9 +558,7 @@ elif menu == "Special Transactions":
                 b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
                 r_idx = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == scheme_name].index[0]
                 
-                # Deduct from bank
                 st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
-                # Add to RD/MF total invested and current value
                 st.session_state.rd_mf.loc[r_idx, "Total Invested"] += amount
                 st.session_state.rd_mf.loc[r_idx, "Current Value"] += amount
                 
