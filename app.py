@@ -60,7 +60,7 @@ if "data_loaded" not in st.session_state:
 
     st.session_state.rd_mf = pd.DataFrame(saved_data.get("rd_mf", []))
     if st.session_state.rd_mf.empty:
-        st.session_state.rd_mf = pd.DataFrame(columns=["Name / Scheme", "Type", "Frequency", "Timing Value", "Linked Bank", "Installment Amount", "Opening Balance", "Total Invested", "Status", "Start Date"])
+        st.session_state.rd_mf = pd.DataFrame(columns=["Name / Scheme", "Type", "Frequency", "Timing Value", "Linked Bank", "Installment Amount", "Opening Balance", "Status", "Start Date"])
         
     st.session_state.submenus = saved_data.get("submenus", {"Patna": ["Rent", "Office"], "Barhiya": ["Vegetable", "Fruit"], "Lakhisarai": ["General"], "Others": ["Misc"]})
     
@@ -176,6 +176,28 @@ elif menu == "Dashboard":
             except:
                 pass
 
+    # RD / MF Due Alerts (Only triggers if Status is Pending)
+    if not st.session_state.rd_mf.empty:
+        for idx, row in st.session_state.rd_mf.iterrows():
+            try:
+                if row.get("Status") == "Pending":
+                    freq = row.get("Frequency", "Monthly")
+                    timing = str(row.get("Timing Value", ""))
+                    if freq == "Monthly":
+                        due_day = int(''.join(filter(str.isdigit, timing)))
+                        days_left = due_day - current_day
+                        if 0 <= days_left <= 7:
+                            st.warning(f"🚨 **RD/MF Alert:** **{row['Name / Scheme']}** installment due in **{days_left} days** (Due on {due_day}th)!")
+                    elif freq == "Yearly" and "-" in timing:
+                        parts = timing.split("-")
+                        due_m, due_d = int(parts[0]), int(parts[1])
+                        if due_m == current_month:
+                            days_left = due_d - current_day
+                            if 0 <= days_left <= 7:
+                                st.warning(f"🚨 **RD/MF Alert:** **{row['Name / Scheme']}** annual installment due in **{days_left} days**!")
+            except:
+                pass
+
     # Quick Summary Metrics
     st.subheader("📌 Overall Financial Summary")
     col_s1, col_s2, col_s3 = st.columns(3)
@@ -222,7 +244,9 @@ elif menu == "Dashboard":
     if not st.session_state.rd_mf.empty:
         st.markdown("---")
         st.subheader("📈 RD / Mutual Funds Summary")
-        st.dataframe(st.session_state.rd_mf)
+        df_rd_disp = st.session_state.rd_mf.copy()
+        df_rd_disp["Total Invested / Value"] = df_rd_disp["Opening Balance"] + df_rd_disp.apply(lambda r: r["Installment Amount"] if r["Status"] == "Completed" else 0.0, axis=1)
+        st.dataframe(df_rd_disp)
 
     st.markdown("---")
     st.subheader("📋 Recent Transactions")
@@ -352,13 +376,12 @@ elif menu == "Master Settings":
             rd_type = st.selectbox("Type", ["RD", "Mutual Fund"], key="rd_type_in")
             rd_freq = st.selectbox("Frequency", ["Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly"], key="rd_freq_in")
             
-            # Dynamic timing inputs
             if rd_freq == "Monthly":
-                rd_timing = f"Day {st.number_input('Due Day of Month (1-31)', min_value=1, max_value=31, value=10, key='rd_m_day')}"
+                rd_timing = f"Day {st.number_input('Due Day of Month (1-31)', min_value=1, max_value=31, value=12, key='rd_m_day')}"
             elif rd_freq == "Yearly":
                 col_m, col_d = st.columns(2)
                 rd_month = col_m.selectbox("Due Month", list(range(1, 13)), format_func=lambda x: datetime(2000, x, 1).strftime('%B'), key="rd_y_month")
-                rd_day = col_d.number_input("Due Day", min_value=1, max_value=31, value=10, key="rd_y_day")
+                rd_day = col_d.number_input("Due Day", min_value=1, max_value=31, value=12, key="rd_y_day")
                 rd_timing = f"{rd_month:02d}-{rd_day:02d}"
             else:
                 rd_timing = "N/A"
@@ -390,7 +413,6 @@ elif menu == "Master Settings":
                         }
                         st.session_state.rd_mf = pd.concat([st.session_state.rd_mf, pd.DataFrame([new_rd])], ignore_index=True)
                         
-                        # If completed on add, deduct installment amount from bank immediately
                         if rd_status == "Completed":
                             b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == rd_bank].index[0]
                             st.session_state.banks.loc[b_idx, "Current Balance"] -= rd_amt
@@ -405,7 +427,6 @@ elif menu == "Master Settings":
                     
         st.write("### Existing RD / Mutual Funds")
         if not st.session_state.rd_mf.empty:
-            # Calculate Total Value (Opening Balance + Installment if completed)
             df_rd_disp = st.session_state.rd_mf.copy()
             df_rd_disp["Total Invested / Value"] = df_rd_disp["Opening Balance"] + df_rd_disp.apply(lambda r: r["Installment Amount"] if r["Status"] == "Completed" else 0.0, axis=1)
             st.dataframe(df_rd_disp)
@@ -436,12 +457,10 @@ elif menu == "Master Settings":
                             old_amt = cur_row["Installment Amount"]
                             linked_b = cur_row["Linked Bank"]
                             
-                            # If status changed from Pending to Completed, deduct from bank
                             if old_status == "Pending" and new_status == "Completed":
                                 if linked_b in st.session_state.banks["Bank Name"].values:
                                     b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == linked_b].index[0]
                                     st.session_state.banks.loc[b_idx, "Current Balance"] -= new_amt
-                            # If amount changed while completed, adjust difference
                             elif old_status == "Completed" and new_status == "Completed" and old_amt != new_amt:
                                 diff = new_amt - old_amt
                                 if linked_b in st.session_state.banks["Bank Name"].values:
