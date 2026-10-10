@@ -811,7 +811,7 @@ elif menu == "Next Due Tracker":
 elif menu == "Reports":
     st.header("📋 Reports & Individual Item Passbook (Ledger)")
     
-    tab_rep1, tab_rep2 = st.tabs(["🔍 General Filter Reports", "📖 Individual Passbook / Ledger"])
+    tab_rep1, tab_rep2, tab_rep3 = st.tabs(["🔍 General Filter Reports", "📖 Individual Passbook / Ledger", "💰 Net Balance Summary"])
     
     with tab_rep1:
         if not st.session_state.transactions.empty:
@@ -972,7 +972,6 @@ elif menu == "Reports":
                 df_pass = st.session_state.transactions.copy()
                 df_pass["Date"] = pd.to_datetime(df_pass["Date"])
                 
-                # Apply Date Filter for Passbook
                 today_dt = pd.to_datetime(current_ist_date)
                 if pass_filter_type == "Daily":
                     df_pass = df_pass[df_pass["Date"].dt.date == current_ist_date]
@@ -1053,6 +1052,53 @@ elif menu == "Reports":
                 st.info("No transactions recorded yet.")
         else:
             st.warning("Please add Bank Accounts, Credit Cards, or Assets in Master Settings first.")
+
+    with tab_rep3:
+        st.subheader("💰 Net Balance Summary (Total Income - Total Expense)")
+        
+        net_filter_type = st.selectbox("Filter Period for Net Balance", ["All", "Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly", "Custom Date Range"], key="net_per")
+        
+        if not st.session_state.transactions.empty:
+            df_net = st.session_state.transactions.copy()
+            df_net["Date"] = pd.to_datetime(df_net["Date"])
+            today_dt = pd.to_datetime(current_ist_date)
+            
+            if net_filter_type == "Daily":
+                df_net = df_net[df_net["Date"].dt.date == current_ist_date]
+            elif net_filter_type == "Weekly":
+                start_week = today_dt - timedelta(days=7)
+                df_net = df_net[(df_net["Date"] >= start_week) & (df_net["Date"] <= today_dt)]
+            elif net_filter_type == "Monthly":
+                df_net = df_net[(df_net["Date"].dt.month == today_dt.month) & (df_net["Date"].dt.year == today_dt.year)]
+            elif net_filter_type == "Quarterly":
+                current_quarter = (today_dt.month - 1) // 3 + 1
+                df_net = df_net[(df_net["Date"].dt.quarter == current_quarter) & (df_net["Date"].dt.year == today_dt.year)]
+            elif net_filter_type == "Half Yearly":
+                current_half = 1 if today_dt.month <= 6 else 2
+                df_net = df_net[(df_net["Date"].dt.month.apply(lambda m: 1 if m <= 6 else 2) == current_half) & (df_net["Date"].dt.year == today_dt.year)]
+            elif net_filter_type == "Yearly":
+                df_net = df_net[df_net["Date"].dt.year == today_dt.year]
+            elif net_filter_type == "Custom Date Range":
+                nc_start = st.date_input("Start Date", value=current_ist_date, key="net_start")
+                nc_end = st.date_input("End Date", value=current_ist_date, key="net_end")
+                df_net = df_net[(df_net["Date"].dt.date >= nc_start) & (df_net["Date"].dt.date <= nc_end)]
+                
+            total_inc = df_net[df_net["Type"] == "Income"]["Amount"].sum()
+            total_exp = df_net[df_net["Type"] == "Expense"]["Amount"].sum()
+            net_bal = total_inc - total_exp
+            
+            col_n1, col_n2, col_n3 = st.columns(3)
+            col_n1.metric("Total Income", f"Rs. {total_inc:,.2f}")
+            col_n2.metric("Total Expense", f"Rs. {total_exp:,.2f}")
+            col_n3.metric("Net Balance (Income - Expense)", f"Rs. {net_bal:,.2f}")
+            
+            st.markdown("---")
+            st.write("### Filtered Transactions List for Net Calculation")
+            df_net_disp = df_net.copy()
+            df_net_disp["Date"] = df_net_disp["Date"].dt.date
+            st.dataframe(df_net_disp)
+        else:
+            st.info("No transactions available to calculate net balance.")
 
 # --- Permanent Footer ---
 st.markdown("---")
