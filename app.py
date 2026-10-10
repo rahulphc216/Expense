@@ -414,11 +414,12 @@ elif menu == "Master Settings":
             new_ll_status = st.selectbox("Set Status", ["Pending", "Completed"], key="new_ll_status_val")
             if st.button("Update LIC/Loan Status"):
                 idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == edit_ll_status].index[0]
-                st.session_state.lic_loans.loc[idx, "Status"] = new_ll_status
+                
+                # Auto rollover if changing to Completed or if already completed and updating
+                freq = str(st.session_state.lic_loans.loc[idx, "Frequency"]).strip()
+                due_val = str(st.session_state.lic_loans.loc[idx, "Due Date Value"]).strip()
                 
                 if new_ll_status == "Completed":
-                    freq = str(st.session_state.lic_loans.loc[idx, "Frequency"]).strip()
-                    due_val = str(st.session_state.lic_loans.loc[idx, "Due Date Value"]).strip()
                     try:
                         d_parts = due_val.split("-")
                         curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
@@ -427,9 +428,11 @@ elif menu == "Master Settings":
                         else:
                             new_due_date = add_years(curr_due_date, 1)
                         st.session_state.lic_loans.loc[idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
-                        st.session_state.lic_loans.loc[idx, "Status"] = "Pending"
                     except:
                         pass
+                    st.session_state.lic_loans.loc[idx, "Status"] = "Pending" # Reset back to Pending for next cycle
+                else:
+                    st.session_state.lic_loans.loc[idx, "Status"] = new_ll_status
                             
                 save_data()
                 st.success(f"✅ Status for '{edit_ll_status}' updated and next due date rolled over!")
