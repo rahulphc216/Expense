@@ -666,6 +666,7 @@ elif menu == "Special Transactions":
         if category == "LIC / Loan":
             if not st.session_state.lic_loans.empty and (not st.session_state.banks.empty or not st.session_state.cards.empty):
                 ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"].tolist(), key="spec_ll_sel")
+                
                 matched_rows = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item]
                 default_amt = float(matched_rows.iloc[0]["Installment / Premium"]) if not matched_rows.empty else 5000.0
                 
@@ -679,7 +680,7 @@ elif menu == "Special Transactions":
                     elif ll_mode == "Credit Card" and not st.session_state.cards.empty:
                         ll_acc_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="spec_ll_c")
                         
-                amount = st.number_input("Installment Amount", value=default_amt, key="spec_ll_amt")
+                amount = st.number_input("Installment Amount", value=default_amt, key=f"spec_ll_amt_{ll_item}")
                 
                 if st.button("Submit Payment"):
                     if pay_action == "Pay via Bank / Card (Deducts Balance)":
@@ -690,7 +691,6 @@ elif menu == "Special Transactions":
                             c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == ll_acc_card].index[0]
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
-                    # Log as Expense in transactions so it appears in reports
                     acc_val = ll_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
                     log_transaction(current_ist_date, "Expense", "Others", "LIC/Loan Payment", ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {ll_item}")
                             
@@ -715,7 +715,7 @@ elif menu == "Special Transactions":
                     elif rd_mode == "Credit Card" and not st.session_state.cards.empty:
                         rd_acc_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="spec_rd_c")
                         
-                amount = st.number_input("Installment Amount", value=default_amt, key="spec_rd_amt")
+                amount = st.number_input("Installment Amount", value=default_amt, key=f"spec_rd_amt_{rd_item}")
                 
                 if st.button("Submit RD/MF Payment"):
                     if pay_action == "Pay via Bank / Card (Deducts Balance)":
@@ -726,7 +726,6 @@ elif menu == "Special Transactions":
                             c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == rd_acc_card].index[0]
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
-                    # RD/MF payments are NOT logged as expenses, only bank/card balance is adjusted if selected
                     save_data()
                     st.success(f"✅ Payment updated for {rd_item} successfully!")
                     st.balloons()
