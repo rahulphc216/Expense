@@ -57,8 +57,9 @@ if "data_loaded" not in st.session_state:
     st.session_state.lic_loans = pd.DataFrame(saved_data.get("lic_loans", []))
     if st.session_state.lic_loans.empty:
         st.session_state.lic_loans = pd.DataFrame(columns=["Name / Policy No", "Type", "Total Amount / Sum Assured", "Frequency", "Due Date Value", "Installment / Premium", "Status"])
-    elif "Status" not in st.session_state.lic_loans.columns:
-        st.session_state.lic_loans["Status"] = "Pending"
+    else:
+        if "Status" not in st.session_state.lic_loans.columns:
+            st.session_state.lic_loans["Status"] = "Pending"
 
     st.session_state.rd_mf = pd.DataFrame(saved_data.get("rd_mf", []))
     if st.session_state.rd_mf.empty:
@@ -159,6 +160,7 @@ elif menu == "Dashboard":
     
     current_day = current_ist_date.day
     current_month = current_ist_date.month
+    current_year = current_ist_date.year
 
     # Credit Card Alerts
     if not st.session_state.cards.empty and "Due Date (Day)" in st.session_state.cards.columns:
@@ -171,7 +173,7 @@ elif menu == "Dashboard":
             except:
                 pass
                 
-    # LIC / Loans Alerts
+    # LIC / Loans Alerts (Smart Auto-Rollover Logic)
     if not st.session_state.lic_loans.empty:
         if "Status" not in st.session_state.lic_loans.columns:
             st.session_state.lic_loans["Status"] = "Pending"
@@ -180,19 +182,33 @@ elif menu == "Dashboard":
             try:
                 status_val = str(row.get("Status", "Pending")).strip().capitalize()
                 if status_val == "Pending":
-                    freq = row.get("Frequency", "Monthly")
+                    freq = str(row.get("Frequency", "Monthly")).strip()
+                    due_val = str(row.get("Due Date Value", "")).strip()
+                    
                     if freq == "Monthly":
-                        due_day = int(row["Due Date Value"])
+                        due_day = int(due_val)
+                        # If current day is past due day for this month, auto rollover concept or standard check
+                        target_date = date(current_year, current_month, min(due_day, 28))
+                        if current_ist_date > target_date and current_ist_date.day > due_day:
+                            pass # Already passed this month
+                        
                         days_left = due_day - current_day
                         if 0 <= days_left <= 7:
                             st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** payment due in **{days_left} days** (Due on {due_day}th)!")
-                    elif freq == "Yearly":
-                        parts = row["Due Date Value"].split("-")
+                            
+                    elif freq == "Yearly" and "-" in due_val:
+                        parts = due_val.split("-")
                         due_m, due_d = int(parts[0]), int(parts[1])
-                        if due_m == current_month:
-                            days_left = due_d - current_day
-                            if 0 <= days_left <= 7:
-                                st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** annual payment due in **{days_left} days**!")
+                        
+                        # Create target date for current year
+                        try:
+                            due_date_this_year = date(current_year, due_m, due_d)
+                        except:
+                            due_date_this_year = date(current_year, due_m, 28)
+                            
+                        delta_days = (due_date_this_year - current_ist_date).days
+                        if 0 <= delta_days <= 7:
+                            st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** annual payment due in **{delta_days} days** (Due on {due_val})!")
             except:
                 pass
 
@@ -379,8 +395,8 @@ elif menu == "Master Settings":
                 ll_due_val = str(st.number_input("Due Day of Month (1-31)", min_value=1, max_value=31, value=10, key="ll_due_m"))
             else:
                 col_m, col_d = st.columns(2)
-                due_month = col_m.selectbox("Due Month", list(range(1, 13)), format_func=lambda x: datetime(2000, x, 1).strftime('%B'), key="ll_due_month_sel")
-                due_day = col_d.number_input("Due Day", min_value=1, max_value=31, value=10, key="ll_due_d")
+                due_month = col_m.selectbox("Due Month (MM)", list(range(1, 13)), format_func=lambda x: datetime(2000, x, 1).strftime('%B'), key="ll_due_month_sel")
+                due_day = col_d.number_input("Due Day (DD)", min_value=1, max_value=31, value=10, key="ll_due_d")
                 ll_due_val = f"{due_month:02d}-{due_day:02d}"
 
             ll_installment = st.number_input("Installment / Premium Amount", value=5000.0, key="ll_inst_in")
