@@ -13,19 +13,7 @@ def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f:
-                data = json.load(f)
-                # Auto-normalize old date formats in lic_loans if present
-                if "lic_loans" in data:
-                    for row in data["lic_loans"]:
-                        val = str(row.get("Due Date Value", ""))
-                        if "-" in val and len(val.split("-")) == 2:
-                            # Old format MM-DD (e.g. 10-10 or 04-26) -> convert to DD-MM-2026
-                            parts = val.split("-")
-                            row["Due Date Value"] = f"12-{parts[0]}-2026"
-                        elif val.isdigit() and len(val) <= 2:
-                            # Old monthly day format -> convert to DD-10-2026
-                            row["Due Date Value"] = f"{int(val):02d}-10-2026"
-                return data
+                return json.load(f)
         except:
             pass
     return {
@@ -201,7 +189,7 @@ elif menu == "Dashboard":
             except:
                 pass
                 
-    # LIC / Loans Alerts (Robust Date Parsing & Rollover)
+    # LIC / Loans Alerts (Auto-Rollover Check)
     if not st.session_state.lic_loans.empty:
         if "Status" not in st.session_state.lic_loans.columns:
             st.session_state.lic_loans["Status"] = "Pending"
@@ -399,7 +387,7 @@ elif menu == "Master Settings":
             ll_amount = st.number_input("Total Amount / Sum Assured / Loan Amount", value=100000.0, key="ll_amt_in")
             ll_freq = st.selectbox("Payment Frequency", ["Monthly", "Yearly"], key="ll_freq_in")
             
-            ll_due_dt = st.date_input("Next Due Date", value=current_ist_date, key="ll_due_dt_in")
+            ll_due_dt = st.date_input("Initial Due Date", value=current_ist_date, key="ll_due_dt_in")
             ll_due_val = ll_due_dt.strftime("%d-%m-%Y")
 
             ll_installment = st.number_input("Installment / Premium Amount", value=5000.0, key="ll_inst_in")
@@ -462,7 +450,7 @@ elif menu == "Master Settings":
             rd_type = st.selectbox("Type", ["RD", "Mutual Fund"], key="rd_type_in")
             rd_freq = st.selectbox("Frequency", ["Monthly", "Yearly"], key="rd_freq_in")
             
-            rd_due_dt = st.date_input("Next Due Date", value=current_ist_date, key="rd_due_dt_in")
+            rd_due_dt = st.date_input("Initial Due Date", value=current_ist_date, key="rd_due_dt_in")
             rd_timing = rd_due_dt.strftime("%d-%m-%Y")
                 
             if not st.session_state.banks.empty:
