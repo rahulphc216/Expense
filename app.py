@@ -249,7 +249,7 @@ elif menu == "Dashboard":
         if not st.session_state.cards.empty:
             c_disp = st.session_state.cards.copy()
             c_disp["Used Limit"] = c_disp["Total Limit"] - c_disp["Current Limit"]
-            c_disp["Usage %"] = (c_disp["Used Limit"] / c_disp["TotalLimit"]) * 100
+            c_disp["Usage %"] = (c_disp["Used Limit"] / c_disp["Total Limit"]) * 100
             c_disp["Usage %"] = c_disp["Usage %"].round(2).astype(str) + "%"
             disp_cols = [c for c in ["Card Name", "Total Limit", "Current Limit", "Used Limit", "Usage %", "Billing Date", "Due Date (Day)"] if c in c_disp.columns]
             st.dataframe(c_disp[disp_cols])
@@ -683,6 +683,12 @@ elif menu == "Special Transactions":
         if not st.session_state.lic_loans.empty and (not st.session_state.banks.empty or not st.session_state.cards.empty):
             ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"], key="ll_pay_sel")
             
+            # Auto-fetch default installment amount from master
+            default_amt = 5000.0
+            matched_row = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item]
+            if not matched_row.empty:
+                default_amt = float(matched_row.iloc[0]["Installment / Premium"])
+            
             ll_mode = st.selectbox("Payment Mode", ["Saving Bank Account", "Credit Card", "Cash"], key="ll_pay_mode")
             ll_acc_card = None
             if ll_mode == "Saving Bank Account":
@@ -696,7 +702,7 @@ elif menu == "Special Transactions":
                 else:
                     st.warning("Please add a Credit Card first.")
                     
-            amount = st.number_input("Installment Amount Paid", value=5000.0, key="ll_amt_pay")
+            amount = st.number_input("Installment Amount Paid", value=default_amt, key="ll_amt_pay")
             
             if st.button("Pay Installment (Clears Alert)"):
                 can_pay = True
@@ -719,7 +725,7 @@ elif menu == "Special Transactions":
                     log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, ll_mode, acc_val, amount, f"Installment paid for {ll_item}")
                     
                     save_data()
-                    st.success(f"✅ Installment paid for {ll_item} via {acc_val}!")
+                    st.success(f"✅ Installment paid for {ll_item} via {acc_val} (Amount: Rs. {amount:,.2f})!")
                     st.balloons()
         else:
             st.warning("Please add Bank Accounts/Credit Cards and LIC/Loans in Master Settings first.")
@@ -777,12 +783,10 @@ elif menu == "Reports":
             st.write(f"### Results (Total Records: {len(df_display)})")
             st.dataframe(df_display)
             
-            # Show Total Sum for Filtered Results
             if not df_display.empty:
                 total_filtered_amt = df_display["Amount"].sum()
                 st.markdown(f"### 💰 **Total Amount (Filtered View): Rs. {total_filtered_amt:,.2f}**")
             
-            # Overall Total Summary across all transactions
             overall_total = st.session_state.transactions["Amount"].sum()
             st.markdown(f"📌 **Overall Total Transaction Amount (All Records): Rs. {overall_total:,.2f}**")
             
