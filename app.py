@@ -132,6 +132,21 @@ def rollover_lic_loan(idx):
     except Exception as e:
         st.error(f"Error rolling over date: {e}")
 
+def rollover_rd_mf(idx):
+    freq = str(st.session_state.rd_mf.loc[idx, "Frequency"]).strip()
+    due_val = str(st.session_state.rd_mf.loc[idx, "Timing Value"]).strip()
+    try:
+        d_parts = due_val.split("-")
+        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+        if freq == "Monthly":
+            new_due_date = add_months(curr_due_date, 1)
+        else:
+            new_due_date = add_years(curr_due_date, 1)
+        st.session_state.rd_mf.loc[idx, "Timing Value"] = new_due_date.strftime("%d-%m-%Y")
+        st.session_state.rd_mf.loc[idx, "Status"] = "Pending"
+    except Exception as e:
+        st.error(f"Error rolling over RD date: {e}")
+
 # --- Sidebar Navigation ---
 st.sidebar.title("Finance Manager")
 menu = st.sidebar.selectbox("Navigation", ["Add Expense", "Dashboard", "Master Settings", "Add Income", "Special Transactions", "Next Due Tracker", "Reports"])
@@ -299,13 +314,18 @@ elif menu == "Dashboard":
     if not st.session_state.lic_loans.empty:
         st.markdown("---")
         st.subheader("📑 LIC Policies & Loans Summary")
-        st.dataframe(st.session_state.lic_loans)
+        disp_ll = st.session_state.lic_loans.copy()
+        if "Status" in disp_ll.columns:
+            disp_ll = disp_ll.drop(columns=["Status"])
+        st.dataframe(disp_ll)
 
     if not st.session_state.rd_mf.empty:
         st.markdown("---")
         st.subheader("📈 RD / Mutual Funds Summary")
         df_rd_disp = st.session_state.rd_mf.copy()
         df_rd_disp["Total Invested / Value"] = df_rd_disp["Opening Balance"] + df_rd_disp.apply(lambda r: r["Installment Amount"] if str(r["Status"]).strip().capitalize() == "Completed" else 0.0, axis=1)
+        if "Status" in df_rd_disp.columns:
+            df_rd_disp = df_rd_disp.drop(columns=["Status"])
         st.dataframe(df_rd_disp)
 
     st.markdown("---")
@@ -405,12 +425,11 @@ elif menu == "Master Settings":
             ll_due_val = ll_due_dt.strftime("%d-%m-%Y")
 
             ll_installment = st.number_input("Installment / Premium Amount", value=5000.0, key="ll_inst_in")
-            ll_status = st.selectbox("Status", ["Pending", "Completed"], key="ll_status_in")
             
             if st.button("Save LIC / Loan"):
                 if ll_name:
                     if ll_name not in st.session_state.lic_loans["Name / Policy No"].values:
-                        new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Frequency": ll_freq, "Due Date Value": ll_due_val, "Installment / Premium": ll_installment, "Status": ll_status}
+                        new_ll = {"Name / Policy No": ll_name, "Type": ll_type, "Total Amount / Sum Assured": ll_amount, "Frequency": ll_freq, "Due Date Value": ll_due_val, "Installment / Premium": ll_installment, "Status": "Pending"}
                         st.session_state.lic_loans = pd.concat([st.session_state.lic_loans, pd.DataFrame([new_ll])], ignore_index=True)
                         save_data()
                         st.success(f"✅ {ll_type} added successfully!")
@@ -422,7 +441,11 @@ elif menu == "Master Settings":
         
         st.write("### Existing LIC & Loans")
         if not st.session_state.lic_loans.empty:
-            st.dataframe(st.session_state.lic_loans)
+            disp_ll = st.session_state.lic_loans.copy()
+            if "Status" in disp_ll.columns:
+                disp_ll = disp_ll.drop(columns=["Status"])
+            st.dataframe(disp_ll)
+
             del_ll = st.selectbox("Select LIC/Loan to Delete", st.session_state.lic_loans["Name / Policy No"], key="del_ll_key")
             if st.button("Delete LIC/Loan"):
                 st.session_state.lic_loans = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] != del_ll]
@@ -431,7 +454,7 @@ elif menu == "Master Settings":
                 st.rerun()
 
     with tab4:
-        st.subheader("Manage RD & Mutual Funds (Add / Edit / Delete / Status Update)")
+        st.subheader("Manage RD & Mutual Funds")
         
         with st.expander("➕ Click here to Add New RD / MF Scheme"):
             rd_name = st.text_input("Scheme / Fund Name", key="rd_name_in")
@@ -449,7 +472,6 @@ elif menu == "Master Settings":
                 
             rd_amt = st.number_input("Installment / Contribution Amount", value=2000.0, key="rd_amt_in")
             rd_opening = st.number_input("Opening Balance (Already Invested Amount)", value=0.0, key="rd_opening_in")
-            rd_status = st.selectbox("Status", ["Pending", "Completed"], key="rd_status_in")
             rd_date = st.date_input("Start Date", value=current_ist_date, key="rd_date_in")
             
             if st.button("Save RD / MF Scheme"):
@@ -463,7 +485,7 @@ elif menu == "Master Settings":
                             "Linked Bank": rd_bank, 
                             "Installment Amount": rd_amt, 
                             "Opening Balance": rd_opening, 
-                            "Status": rd_status, 
+                            "Status": "Pending", 
                             "Start Date": str(rd_date)
                         }
                         st.session_state.rd_mf = pd.concat([st.session_state.rd_mf, pd.DataFrame([new_rd])], ignore_index=True)
@@ -479,17 +501,16 @@ elif menu == "Master Settings":
         if not st.session_state.rd_mf.empty:
             df_rd_disp = st.session_state.rd_mf.copy()
             df_rd_disp["Total Invested / Value"] = df_rd_disp["Opening Balance"] + df_rd_disp.apply(lambda r: r["Installment Amount"] if str(r["Status"]).strip().capitalize() == "Completed" else 0.0, axis=1)
+            if "Status" in df_rd_disp.columns:
+                df_rd_disp = df_rd_disp.drop(columns=["Status"])
             st.dataframe(df_rd_disp)
             
-            rd_action = st.radio("Choose Action for RD/MF", ["Delete Scheme", "Edit Scheme / Status"], key="rd_action_radio")
-            
-            if rd_action == "Delete Scheme":
-                del_rd = st.selectbox("Select Scheme to Delete", st.session_state.rd_mf["Name / Scheme"], key="del_rd_key")
-                if st.button("Delete Selected Scheme"):
-                    st.session_state.rd_mf = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] != del_rd]
-                    save_data()
-                    st.success("✅ Scheme deleted successfully!")
-                    st.rerun()
+            del_rd = st.selectbox("Select Scheme to Delete", st.session_state.rd_mf["Name / Scheme"], key="del_rd_key")
+            if st.button("Delete Selected Scheme"):
+                st.session_state.rd_mf = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] != del_rd]
+                save_data()
+                st.success("✅ Scheme deleted successfully!")
+                st.rerun()
 
     with tab5:
         st.subheader("Manage Location Submenus")
@@ -567,7 +588,7 @@ elif menu == "Add Income":
 elif menu == "Special Transactions":
     st.header("🔄 Special Transactions (Payments & Transfers)")
     
-    st_type = st.selectbox("Transaction Type", ["Lent / Borrow (Udhar)", "Self-Transfer Between Accounts", "Credit Card Bill Payment", "LIC / Loan Installment Payment"])
+    st_type = st.selectbox("Transaction Type", ["Lent / Borrow (Udhar)", "Self-Transfer Between Accounts", "Credit Card Bill Payment", "LIC / Loan / RD / MF Payment"])
     
     if st_type == "Lent / Borrow (Udhar)":
         st.subheader("🤝 Lent / Borrow (Udhar)")
@@ -667,92 +688,113 @@ elif menu == "Special Transactions":
         else:
             st.warning("Please add at least one Bank Account and one Credit Card in Master Settings first.")
 
-    elif st_type == "LIC / Loan Installment Payment":
-        st.subheader("📑 LIC / Loan Installment Payment")
-        if not st.session_state.lic_loans.empty and (not st.session_state.banks.empty or not st.session_state.cards.empty):
-            ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"].tolist(), key="ll_pay_sel")
-            
-            matched_rows = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item]
-            default_amt = 5000.0
-            if not matched_rows.empty:
-                default_amt = float(matched_rows.iloc[0]["Installment / Premium"])
-            
-            if "prev_ll_item" not in st.session_state:
-                st.session_state.prev_ll_item = None
-
-            if st.session_state.prev_ll_item != ll_item:
-                st.session_state.prev_ll_item = ll_item
-                st.session_state["ll_amt_pay"] = default_amt
-            
-            ll_mode = st.selectbox("Payment Mode", ["Saving Bank Account", "Credit Card", "Cash"], key="ll_pay_mode")
-            ll_acc_card = None
-            if ll_mode == "Saving Bank Account":
-                if not st.session_state.banks.empty:
-                    ll_acc_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="ll_bank_sel")
-                else:
-                    st.warning("Please add a Bank Account first.")
-            elif ll_mode == "Credit Card":
-                if not st.session_state.cards.empty:
-                    ll_acc_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="ll_card_sel")
-                else:
-                    st.warning("Please add a Credit Card first.")
-                    
-            amount = st.number_input("Installment Amount Paid", value=default_amt, key="ll_amt_pay")
-            
-            if st.button("Pay Installment (Updates Balance & Status)"):
-                can_pay = True
-                if ll_mode == "Saving Bank Account" and not ll_acc_card:
-                    can_pay = False
-                    st.error("Please select a valid Bank Account.")
-                elif ll_mode == "Credit Card" and not ll_acc_card:
-                    can_pay = False
-                    st.error("Please select a valid Credit Card.")
-                    
-                if can_pay:
-                    acc_val = ll_acc_card if ll_acc_card else "Cash"
-                    if ll_mode == "Saving Bank Account" and ll_acc_card:
-                        b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == ll_acc_card].index[0]
-                        st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
-                    elif ll_mode == "Credit Card" and ll_acc_card:
-                        c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == ll_acc_card].index[0]
-                        st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
+    elif st_type == "LIC / Loan / RD / MF Payment":
+        st.subheader("📑 LIC / Loan / RD / MF Installment Payment")
+        
+        category = st.selectbox("Select Category", ["LIC / Loan", "RD / Mutual Fund"], key="spec_cat_sel")
+        
+        if category == "LIC / Loan":
+            if not st.session_state.lic_loans.empty and (not st.session_state.banks.empty or not st.session_state.cards.empty):
+                ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"].tolist(), key="spec_ll_sel")
+                matched_rows = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item]
+                default_amt = float(matched_rows.iloc[0]["Installment / Premium"]) if not matched_rows.empty else 5000.0
+                
+                pay_action = st.selectbox("Action Type", ["Pay via Bank / Card (Deducts Balance)", "Mark as Paid (No Balance Deduction)"], key="ll_pay_act")
+                
+                ll_mode, ll_acc_card = "Cash", "Cash"
+                if pay_action == "Pay via Bank / Card (Deducts Balance)":
+                    ll_mode = st.selectbox("Payment Mode", ["Saving Bank Account", "Credit Card", "Cash"], key="spec_ll_mode")
+                    if ll_mode == "Saving Bank Account" and not st.session_state.banks.empty:
+                        ll_acc_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="spec_ll_b")
+                    elif ll_mode == "Credit Card" and not st.session_state.cards.empty:
+                        ll_acc_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="spec_ll_c")
                         
+                amount = st.number_input("Installment Amount", value=default_amt, key="spec_ll_amt")
+                
+                if st.button("Submit Payment & Update Next Due"):
+                    if pay_action == "Pay via Bank / Card (Deducts Balance)":
+                        if ll_mode == "Saving Bank Account" and ll_acc_card in st.session_state.banks["Bank Name"].values:
+                            b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == ll_acc_card].index[0]
+                            st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
+                        elif ll_mode == "Credit Card" and ll_acc_card in st.session_state.cards["Card Name"].values:
+                            c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == ll_acc_card].index[0]
+                            st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
+                            
+                    # Rollover due date
                     ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
-                    st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
-                    
                     freq = str(st.session_state.lic_loans.loc[ll_idx, "Frequency"]).strip()
                     due_val = str(st.session_state.lic_loans.loc[ll_idx, "Due Date Value"]).strip()
                     try:
                         d_parts = due_val.split("-")
-                        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-                        if freq == "Monthly":
-                            new_due_date = add_months(curr_due_date, 1)
-                        else:
-                            new_due_date = add_years(curr_due_date, 1)
-                        st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
+                        curr_due = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+                        new_due = add_months(curr_due, 1) if freq == "Monthly" else add_years(curr_due, 1)
+                        st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = new_due.strftime("%d-%m-%Y")
                         st.session_state.lic_loans.loc[ll_idx, "Status"] = "Pending"
                     except:
                         pass
                         
-                    log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, ll_mode, acc_val, amount, f"Installment paid for {ll_item}")
-                    
                     save_data()
-                    st.success(f"✅ Installment paid for {ll_item} via {acc_val} & Next Due Date set!")
+                    st.success(f"✅ Payment updated for {ll_item} & Next Due Date rolled over successfully!")
                     st.balloons()
+            else:
+                st.warning("Please add LIC/Loans and Bank/Cards in Master Settings first.")
         else:
-            st.warning("Please add Bank Accounts/Credit Cards and LIC/Loans in Master Settings first.")
+            if not st.session_state.rd_mf.empty and (not st.session_state.banks.empty or not st.session_state.cards.empty):
+                rd_item = st.selectbox("Select RD / Mutual Fund", st.session_state.rd_mf["Name / Scheme"].tolist(), key="spec_rd_sel")
+                matched_rows = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == rd_item]
+                default_amt = float(matched_rows.iloc[0]["Installment Amount"]) if not matched_rows.empty else 2000.0
+                
+                pay_action = st.selectbox("Action Type", ["Pay via Bank / Card (Deducts Balance)", "Mark as Paid (No Balance Deduction)"], key="rd_pay_act")
+                
+                rd_mode, rd_acc_card = "Cash", "Cash"
+                if pay_action == "Pay via Bank / Card (Deducts Balance)":
+                    rd_mode = st.selectbox("Payment Mode", ["Saving Bank Account", "Credit Card", "Cash"], key="spec_rd_mode")
+                    if rd_mode == "Saving Bank Account" and not st.session_state.banks.empty:
+                        rd_acc_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="spec_rd_b")
+                    elif rd_mode == "Credit Card" and not st.session_state.cards.empty:
+                        rd_acc_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="spec_rd_c")
+                        
+                amount = st.number_input("Installment Amount", value=default_amt, key="spec_rd_amt")
+                
+                if st.button("Submit RD/MF Payment & Update Next Due"):
+                    if pay_action == "Pay via Bank / Card (Deducts Balance)":
+                        if rd_mode == "Saving Bank Account" and rd_acc_card in st.session_state.banks["Bank Name"].values:
+                            b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == rd_acc_card].index[0]
+                            st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
+                        elif rd_mode == "Credit Card" and rd_acc_card in st.session_state.cards["Card Name"].values:
+                            c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == rd_acc_card].index[0]
+                            st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
+                            
+                    r_idx = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == rd_item].index[0]
+                    freq = str(st.session_state.rd_mf.loc[r_idx, "Frequency"]).strip()
+                    due_val = str(st.session_state.rd_mf.loc[r_idx, "Timing Value"]).strip()
+                    try:
+                        d_parts = due_val.split("-")
+                        curr_due = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+                        new_due = add_months(curr_due, 1) if freq == "Monthly" else add_years(curr_due, 1)
+                        st.session_state.rd_mf.loc[r_idx, "Timing Value"] = new_due.strftime("%d-%m-%Y")
+                        st.session_state.rd_mf.loc[r_idx, "Status"] = "Pending"
+                    except:
+                        pass
+                        
+                    save_data()
+                    st.success(f"✅ Payment updated for {rd_item} & Next Due Date rolled over successfully!")
+                    st.balloons()
+            else:
+                st.warning("Please add RD/MF and Bank/Cards in Master Settings first.")
 
 # ==================== 7. NEXT DUE TRACKER (Dedicated Control Room) ====================
 elif menu == "Next Due Tracker":
     st.header("⏳ Dedicated Next Due Tracker & Control Room")
-    st.write("Yahan aap apni saari LIC, Loans, RD, aur Mutual Funds ki due dates aur status ko ek hi jagah par aasani से manage aur rollover kar sakte hain.")
+    st.write("Yahan aap apni saari LIC, Loans, RD, aur Mutual Funds ki due dates aur status ko ek hi jagah par aasani se manage aur rollover kar sakte hain.")
     
     tab_due1, tab_due2 = st.tabs(["📑 LIC & Loans Dues", "📈 RD & Mutual Funds Dues"])
     
     with tab_due1:
         st.subheader("Manage LIC Policies & Loans Due Dates")
         if not st.session_state.lic_loans.empty:
-            st.dataframe(st.session_state.lic_loans)
+            disp_ll = st.session_state.lic_loans.copy()
+            st.dataframe(disp_ll)
             
             sel_policy = st.selectbox("Select Policy / Loan to Update", st.session_state.lic_loans["Name / Policy No"], key="track_ll_sel")
             action_choice = st.selectbox("Select Action", ["Mark as Paid / Complete & Rollover", "Reset to Pending"], key="track_ll_act")
@@ -766,10 +808,7 @@ elif menu == "Next Due Tracker":
                     try:
                         d_parts = due_val.split("-")
                         curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-                        if freq == "Monthly":
-                            new_due_date = add_months(curr_due_date, 1)
-                        else:
-                            new_due_date = add_years(curr_due_date, 1)
+                        new_due_date = add_months(curr_due_date, 1) if freq == "Monthly" else add_years(curr_due_date, 1)
                         st.session_state.lic_loans.loc[p_idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
                         st.session_state.lic_loans.loc[p_idx, "Status"] = "Pending"
                     except Exception as e:
@@ -788,7 +827,8 @@ elif menu == "Next Due Tracker":
     with tab_due2:
         st.subheader("Manage RD & Mutual Funds Due Dates")
         if not st.session_state.rd_mf.empty:
-            st.dataframe(st.session_state.rd_mf)
+            disp_rd = st.session_state.rd_mf.copy()
+            st.dataframe(disp_rd)
             
             sel_rd = st.selectbox("Select RD / MF Scheme to Update", st.session_state.rd_mf["Name / Scheme"], key="track_rd_sel")
             action_rd_choice = st.selectbox("Select Action", ["Mark as Paid / Complete & Rollover", "Reset to Pending"], key="track_rd_act")
@@ -802,10 +842,7 @@ elif menu == "Next Due Tracker":
                     try:
                         d_parts = due_val.split("-")
                         curr_due = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-                        if freq == "Monthly":
-                            new_due = add_months(curr_due, 1)
-                        else:
-                            new_due = add_years(curr_due, 1)
+                        new_due = add_months(curr_due, 1) if freq == "Monthly" else add_years(curr_due, 1)
                         st.session_state.rd_mf.loc[r_idx, "Timing Value"] = new_due.strftime("%d-%m-%Y")
                         st.session_state.rd_mf.loc[r_idx, "Status"] = "Pending"
                     except Exception as e:
