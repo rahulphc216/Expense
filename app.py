@@ -681,7 +681,7 @@ elif menu == "Special Transactions":
                         
                 amount = st.number_input("Installment Amount", value=default_amt, key="spec_ll_amt")
                 
-                if st.button("Submit Payment & Update Next Due"):
+                if st.button("Submit Payment"):
                     if pay_action == "Pay via Bank / Card (Deducts Balance)":
                         if ll_mode == "Saving Bank Account" and ll_acc_card in st.session_state.banks["Bank Name"].values:
                             b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == ll_acc_card].index[0]
@@ -690,21 +690,12 @@ elif menu == "Special Transactions":
                             c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == ll_acc_card].index[0]
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
-                    # Rollover due date
-                    ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
-                    freq = str(st.session_state.lic_loans.loc[ll_idx, "Frequency"]).strip()
-                    due_val = str(st.session_state.lic_loans.loc[ll_idx, "Due Date Value"]).strip()
-                    try:
-                        d_parts = due_val.split("-")
-                        curr_due = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-                        new_due = add_months(curr_due, 1) if freq == "Monthly" else add_years(curr_due, 1)
-                        st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = new_due.strftime("%d-%m-%Y")
-                        st.session_state.lic_loans.loc[ll_idx, "Status"] = "Pending"
-                    except:
-                        pass
-                        
+                    # Log as Expense in transactions so it appears in reports
+                    acc_val = ll_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
+                    log_transaction(current_ist_date, "Expense", "Others", "LIC/Loan Payment", ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {ll_item}")
+                            
                     save_data()
-                    st.success(f"✅ Payment updated for {ll_item} & Next Due Date rolled over successfully!")
+                    st.success(f"✅ Payment recorded for {ll_item} and added to Expenses report successfully!")
                     st.balloons()
             else:
                 st.warning("Please add LIC/Loans and Bank/Cards in Master Settings first.")
@@ -726,7 +717,7 @@ elif menu == "Special Transactions":
                         
                 amount = st.number_input("Installment Amount", value=default_amt, key="spec_rd_amt")
                 
-                if st.button("Submit RD/MF Payment & Update Next Due"):
+                if st.button("Submit RD/MF Payment"):
                     if pay_action == "Pay via Bank / Card (Deducts Balance)":
                         if rd_mode == "Saving Bank Account" and rd_acc_card in st.session_state.banks["Bank Name"].values:
                             b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == rd_acc_card].index[0]
@@ -735,20 +726,9 @@ elif menu == "Special Transactions":
                             c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == rd_acc_card].index[0]
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
-                    r_idx = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == rd_item].index[0]
-                    freq = str(st.session_state.rd_mf.loc[r_idx, "Frequency"]).strip()
-                    due_val = str(st.session_state.rd_mf.loc[r_idx, "Timing Value"]).strip()
-                    try:
-                        d_parts = due_val.split("-")
-                        curr_due = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-                        new_due = add_months(curr_due, 1) if freq == "Monthly" else add_years(curr_due, 1)
-                        st.session_state.rd_mf.loc[r_idx, "Timing Value"] = new_due.strftime("%d-%m-%Y")
-                        st.session_state.rd_mf.loc[r_idx, "Status"] = "Pending"
-                    except:
-                        pass
-                        
+                    # RD/MF payments are NOT logged as expenses, only bank/card balance is adjusted if selected
                     save_data()
-                    st.success(f"✅ Payment updated for {rd_item} & Next Due Date rolled over successfully!")
+                    st.success(f"✅ Payment updated for {rd_item} successfully!")
                     st.balloons()
             else:
                 st.warning("Please add RD/MF and Bank/Cards in Master Settings first.")
