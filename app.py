@@ -117,24 +117,9 @@ def add_years(sourcedate, years):
     except ValueError:
         return sourcedate.replace(year=sourcedate.year + years, month=2, day=28)
 
-def rollover_lic_loan(idx):
-    freq = str(st.session_state.lic_loans.loc[idx, "Frequency"]).strip()
-    due_val = str(st.session_state.lic_loans.loc[idx, "Due Date Value"]).strip()
-    try:
-        d_parts = due_val.split("-")
-        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-        if freq == "Monthly":
-            new_due_date = add_months(curr_due_date, 1)
-        else:
-            new_due_date = add_years(curr_due_date, 1)
-        st.session_state.lic_loans.loc[idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
-        st.session_state.lic_loans.loc[idx, "Status"] = "Pending"
-    except Exception as e:
-        st.error(f"Error rolling over date: {e}")
-
 # --- Sidebar Navigation ---
 st.sidebar.title("Finance Manager")
-menu = st.sidebar.selectbox("Navigation", ["Add Expense", "Dashboard", "Master Settings", "Add Income", "Special Transactions", "Reports"])
+menu = st.sidebar.selectbox("Navigation", ["Add Expense", "Dashboard", "Master Settings", "Add Income", "Special Transactions", "Next Due Tracker", "Reports"])
 
 # ==================== 1. ADD EXPENSE ====================
 if menu == "Add Expense":
@@ -423,21 +408,6 @@ elif menu == "Master Settings":
         st.write("### Existing LIC & Loans")
         if not st.session_state.lic_loans.empty:
             st.dataframe(st.session_state.lic_loans)
-            
-            edit_ll_status = st.selectbox("Select LIC/Loan to Update Status", st.session_state.lic_loans["Name / Policy No"], key="edit_ll_status_sel")
-            new_ll_status = st.selectbox("Set Status", ["Pending", "Completed"], key="new_ll_status_val")
-            if st.button("Update LIC/Loan Status"):
-                idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == edit_ll_status].index[0]
-                st.session_state.lic_loans.loc[idx, "Status"] = new_ll_status
-                
-                # Auto rollover ONLY if status is set to Completed
-                if new_ll_status == "Completed":
-                    rollover_lic_loan(idx)
-                            
-                save_data()
-                st.success(f"✅ Status updated successfully!")
-                st.rerun()
-
             del_ll = st.selectbox("Select LIC/Loan to Delete", st.session_state.lic_loans["Name / Policy No"], key="del_ll_key")
             if st.button("Delete LIC/Loan"):
                 st.session_state.lic_loans = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] != del_ll]
@@ -482,12 +452,6 @@ elif menu == "Master Settings":
                             "Start Date": str(rd_date)
                         }
                         st.session_state.rd_mf = pd.concat([st.session_state.rd_mf, pd.DataFrame([new_rd])], ignore_index=True)
-                        
-                        if rd_status == "Completed":
-                            b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == rd_bank].index[0]
-                            st.session_state.banks.loc[b_idx, "Current Balance"] -= rd_amt
-                            log_transaction(current_ist_date, "Investment (RD/MF)", "N/A", rd_name, "Saving Bank Account", rd_bank, rd_amt, f"Initial Complete Payment for {rd_name}")
-                            
                         save_data()
                         st.success(f"✅ RD / MF scheme '{rd_name}' added successfully!")
                         st.balloons()
@@ -511,56 +475,6 @@ elif menu == "Master Settings":
                     save_data()
                     st.success("✅ Scheme deleted successfully!")
                     st.rerun()
-            elif rd_action == "Edit Scheme / Status":
-                edit_rd = st.selectbox("Select Scheme to Edit", st.session_state.rd_mf["Name / Scheme"], key="edit_rd_key")
-                if edit_rd in st.session_state.rd_mf["Name / Scheme"].values:
-                    r_idx = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == edit_rd].index[0]
-                    cur_row = st.session_state.rd_mf.loc[r_idx]
-                    
-                    with st.form("edit_rd_form"):
-                        new_amt = st.number_input("Update Installment Amount", value=float(cur_row["Installment Amount"]))
-                        new_opening = st.number_input("Update Opening Balance", value=float(cur_row["Opening Balance"]))
-                        new_status = st.selectbox("Update Status", ["Pending", "Completed"], index=0 if str(cur_row["Status"]).strip().capitalize()=="Pending" else 1)
-                        sub_edit_rd = st.form_submit_button("Update Scheme")
-                        
-                        if sub_edit_rd:
-                            old_status = str(cur_row["Status"]).strip().capitalize()
-                            old_amt = cur_row["Installment Amount"]
-                            linked_b = cur_row["Linked Bank"]
-                            
-                            if old_status == "Pending" and new_status == "Completed":
-                                if linked_b in st.session_state.banks["Bank Name"].values:
-                                    b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == linked_b].index[0]
-                                    st.session_state.banks.loc[b_idx, "Current Balance"] -= new_amt
-                                    log_transaction(current_ist_date, "Investment (RD/MF)", "N/A", edit_rd, "Saving Bank Account", linked_b, new_amt, f"Installment Completed for {edit_rd}")
-                                    
-                                    try:
-                                        d_val = str(cur_row["Timing Value"])
-                                        d_parts = d_val.split("-")
-                                        curr_due = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-                                        freq = str(cur_row["Frequency"]).strip()
-                                        if freq == "Monthly":
-                                            new_due = add_months(curr_due, 1)
-                                        else:
-                                            new_due = add_years(curr_due, 1)
-                                        st.session_state.rd_mf.loc[r_idx, "Timing Value"] = new_due.strftime("%d-%m-%Y")
-                                        st.session_state.rd_mf.loc[r_idx, "Status"] = "Pending"
-                                    except:
-                                        pass
-
-                            elif old_status == "Completed" and new_status == "Completed" and old_amt != new_amt:
-                                diff = new_amt - old_amt
-                                if linked_b in st.session_state.banks["Bank Name"].values:
-                                    b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == linked_b].index[0]
-                                    st.session_state.banks.loc[b_idx, "Current Balance"] -= diff
-                                    log_transaction(current_ist_date, "Investment Adjustment", "N/A", edit_rd, "Saving Bank Account", linked_b, abs(diff), f"Amount updated for {edit_rd}")
-                                    
-                            st.session_state.rd_mf.loc[r_idx, "Installment Amount"] = new_amt
-                            st.session_state.rd_mf.loc[r_idx, "Opening Balance"] = new_opening
-                            st.session_state.rd_mf.loc[r_idx, "Status"] = new_status
-                            save_data()
-                            st.success(f"✅ Scheme '{edit_rd}' updated successfully! Bank balance adjusted.")
-                            st.balloons()
 
     with tab5:
         st.subheader("Manage Location Submenus")
@@ -793,7 +707,19 @@ elif menu == "Special Transactions":
                         ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
                         st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
                         
-                        rollover_lic_loan(ll_idx)
+                        freq = str(st.session_state.lic_loans.loc[ll_idx, "Frequency"]).strip()
+                        due_val = str(st.session_state.lic_loans.loc[ll_idx, "Due Date Value"]).strip()
+                        try:
+                            d_parts = due_val.split("-")
+                            curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+                            if freq == "Monthly":
+                                new_due_date = add_months(curr_due_date, 1)
+                            else:
+                                new_due_date = add_years(curr_due_date, 1)
+                            st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
+                            st.session_state.lic_loans.loc[ll_idx, "Status"] = "Pending"
+                        except:
+                            pass
                             
                         log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, ll_mode, acc_val, amount, f"Installment paid for {ll_item}")
                         
@@ -805,13 +731,104 @@ elif menu == "Special Transactions":
                     ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
                     st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
                     
-                    rollover_lic_loan(ll_idx)
+                    freq = str(st.session_state.lic_loans.loc[ll_idx, "Frequency"]).strip()
+                    due_val = str(st.session_state.lic_loans.loc[ll_idx, "Due Date Value"]).strip()
+                    try:
+                        d_parts = due_val.split("-")
+                        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+                        if freq == "Monthly":
+                            new_due_date = add_months(curr_due_date, 1)
+                        else:
+                            new_due_date = add_years(curr_due_date, 1)
+                        st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
+                        st.session_state.lic_loans.loc[ll_idx, "Status"] = "Pending"
+                    except:
+                        pass
 
                     save_data()
                     st.success(f"✅ '{ll_item}' marked as Completed and next due updated!")
                     st.rerun()
         else:
             st.warning("Please add Bank Accounts/Credit Cards and LIC/Loans in Master Settings first.")
+
+# ==================== 7. NEXT DUE TRACKER (Dedicated Control Room) ====================
+elif menu == "Next Due Tracker":
+    st.header("⏳ Dedicated Next Due Tracker & Control Room")
+    st.write("Yahan aap apni saari LIC, Loans, RD, aur Mutual Funds ki due dates aur status ko ek hi jagah par aasani se manage aur rollover kar sakte hain.")
+    
+    tab_due1, tab_due2 = st.tabs(["📑 LIC & Loans Dues", "📈 RD & Mutual Funds Dues"])
+    
+    with tab_due1:
+        st.subheader("Manage LIC Policies & Loans Due Dates")
+        if not st.session_state.lic_loans.empty:
+            st.dataframe(st.session_state.lic_loans)
+            
+            sel_policy = st.selectbox("Select Policy / Loan to Update", st.session_state.lic_loans["Name / Policy No"], key="track_ll_sel")
+            action_choice = st.selectbox("Select Action", ["Mark as Paid / Complete & Rollover", "Reset to Pending"], key="track_ll_act")
+            
+            if st.button("Execute Action on Policy"):
+                p_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == sel_policy].index[0]
+                if action_choice == "Mark as Paid / Complete & Rollover":
+                    st.session_state.lic_loans.loc[p_idx, "Status"] = "Completed"
+                    freq = str(st.session_state.lic_loans.loc[p_idx, "Frequency"]).strip()
+                    due_val = str(st.session_state.lic_loans.loc[p_idx, "Due Date Value"]).strip()
+                    try:
+                        d_parts = due_val.split("-")
+                        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+                        if freq == "Monthly":
+                            new_due_date = add_months(curr_due_date, 1)
+                        else:
+                            new_due_date = add_years(curr_due_date, 1)
+                        st.session_state.lic_loans.loc[p_idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
+                        st.session_state.lic_loans.loc[p_idx, "Status"] = "Pending"
+                    except Exception as e:
+                        st.error(f"Date conversion error: {e}")
+                    save_data()
+                    st.success(f"✅ '{sel_policy}' completed & next due date successfully rolled over!")
+                    st.rerun()
+                else:
+                    st.session_state.lic_loans.loc[p_idx, "Status"] = "Pending"
+                    save_data()
+                    st.success(f"✅ '{sel_policy}' status reset to Pending!")
+                    st.rerun()
+        else:
+            st.info("No LIC or Loan entries found.")
+
+    with tab_due2:
+        st.subheader("Manage RD & Mutual Funds Due Dates")
+        if not st.session_state.rd_mf.empty:
+            st.dataframe(st.session_state.rd_mf)
+            
+            sel_rd = st.selectbox("Select RD / MF Scheme to Update", st.session_state.rd_mf["Name / Scheme"], key="track_rd_sel")
+            action_rd_choice = st.selectbox("Select Action", ["Mark as Paid / Complete & Rollover", "Reset to Pending"], key="track_rd_act")
+            
+            if st.button("Execute Action on Scheme"):
+                r_idx = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == sel_rd].index[0]
+                if action_rd_choice == "Mark as Paid / Complete & Rollover":
+                    st.session_state.rd_mf.loc[r_idx, "Status"] = "Completed"
+                    freq = str(st.session_state.rd_mf.loc[r_idx, "Frequency"]).strip()
+                    due_val = str(st.session_state.rd_mf.loc[r_idx, "Timing Value"]).strip()
+                    try:
+                        d_parts = due_val.split("-")
+                        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+                        if freq == "Monthly":
+                            new_due_date = add_months(curr_due_date, 1)
+                        else:
+                            new_due_date = add_years(curr_due_date, 1)
+                        st.session_state.rd_mf.loc[r_idx, "Timing Value"] = new_due_date.strftime("%d-%m-%Y")
+                        st.session_state.rd_mf.loc[r_idx, "Status"] = "Pending"
+                    except Exception as e:
+                        st.error(f"Date conversion error: {e}")
+                    save_data()
+                    st.success(f"✅ Scheme '{sel_rd}' completed & next due date successfully rolled over!")
+                    st.rerun()
+                else:
+                    st.session_state.rd_mf.loc[r_idx, "Status"] = "Pending"
+                    save_data()
+                    st.success(f"✅ Scheme '{sel_rd}' status reset to Pending!")
+                    st.rerun()
+        else:
+            st.info("No RD or Mutual Fund entries found.")
 
 # ==================== 6. REPORTS & PASSBOOK ====================
 elif menu == "Reports":
