@@ -117,6 +117,21 @@ def add_years(sourcedate, years):
     except ValueError:
         return sourcedate.replace(year=sourcedate.year + years, month=2, day=28)
 
+def rollover_lic_loan(idx):
+    freq = str(st.session_state.lic_loans.loc[idx, "Frequency"]).strip()
+    due_val = str(st.session_state.lic_loans.loc[idx, "Due Date Value"]).strip()
+    try:
+        d_parts = due_val.split("-")
+        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+        if freq == "Monthly":
+            new_due_date = add_months(curr_due_date, 1)
+        else:
+            new_due_date = add_years(curr_due_date, 1)
+        st.session_state.lic_loans.loc[idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
+        st.session_state.lic_loans.loc[idx, "Status"] = "Pending"
+    except Exception as e:
+        st.error(f"Error rolling over date: {e}")
+
 # --- Sidebar Navigation ---
 st.sidebar.title("Finance Manager")
 menu = st.sidebar.selectbox("Navigation", ["Add Expense", "Dashboard", "Master Settings", "Add Income", "Special Transactions", "Next Due Tracker", "Reports"])
@@ -684,50 +699,24 @@ elif menu == "Special Transactions":
                     
             amount = st.number_input("Installment Amount Paid", value=default_amt, key="ll_amt_pay")
             
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                if st.button("Pay Installment (Updates Balance & Status)"):
-                    can_pay = True
-                    if ll_mode == "Saving Bank Account" and not ll_acc_card:
-                        can_pay = False
-                        st.error("Please select a valid Bank Account.")
-                    elif ll_mode == "Credit Card" and not ll_acc_card:
-                        can_pay = False
-                        st.error("Please select a valid Credit Card.")
+            if st.button("Pay Installment (Updates Balance & Status)"):
+                can_pay = True
+                if ll_mode == "Saving Bank Account" and not ll_acc_card:
+                    can_pay = False
+                    st.error("Please select a valid Bank Account.")
+                elif ll_mode == "Credit Card" and not ll_acc_card:
+                    can_pay = False
+                    st.error("Please select a valid Credit Card.")
+                    
+                if can_pay:
+                    acc_val = ll_acc_card if ll_acc_card else "Cash"
+                    if ll_mode == "Saving Bank Account" and ll_acc_card:
+                        b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == ll_acc_card].index[0]
+                        st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
+                    elif ll_mode == "Credit Card" and ll_acc_card:
+                        c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == ll_acc_card].index[0]
+                        st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                         
-                    if can_pay:
-                        acc_val = ll_acc_card if ll_acc_card else "Cash"
-                        if ll_mode == "Saving Bank Account" and ll_acc_card:
-                            b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == ll_acc_card].index[0]
-                            st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
-                        elif ll_mode == "Credit Card" and ll_acc_card:
-                            c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == ll_acc_card].index[0]
-                            st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
-                            
-                        ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
-                        st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
-                        
-                        freq = str(st.session_state.lic_loans.loc[ll_idx, "Frequency"]).strip()
-                        due_val = str(st.session_state.lic_loans.loc[ll_idx, "Due Date Value"]).strip()
-                        try:
-                            d_parts = due_val.split("-")
-                            curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
-                            if freq == "Monthly":
-                                new_due_date = add_months(curr_due_date, 1)
-                            else:
-                                new_due_date = add_years(curr_due_date, 1)
-                            st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
-                            st.session_state.lic_loans.loc[ll_idx, "Status"] = "Pending"
-                        except:
-                            pass
-                            
-                        log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, ll_mode, acc_val, amount, f"Installment paid for {ll_item}")
-                        
-                        save_data()
-                        st.success(f"✅ Installment paid for {ll_item} via {acc_val} & Next Due Date set!")
-                        st.balloons()
-            with col_p2:
-                if st.button("Mark as Paid (Remove Alert Only)"):
                     ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
                     st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
                     
@@ -744,17 +733,19 @@ elif menu == "Special Transactions":
                         st.session_state.lic_loans.loc[ll_idx, "Status"] = "Pending"
                     except:
                         pass
-
+                        
+                    log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, ll_mode, acc_val, amount, f"Installment paid for {ll_item}")
+                    
                     save_data()
-                    st.success(f"✅ '{ll_item}' marked as Completed and next due updated!")
-                    st.rerun()
+                    st.success(f"✅ Installment paid for {ll_item} via {acc_val} & Next Due Date set!")
+                    st.balloons()
         else:
             st.warning("Please add Bank Accounts/Credit Cards and LIC/Loans in Master Settings first.")
 
 # ==================== 7. NEXT DUE TRACKER (Dedicated Control Room) ====================
 elif menu == "Next Due Tracker":
     st.header("⏳ Dedicated Next Due Tracker & Control Room")
-    st.write("Yahan aap apni saari LIC, Loans, RD, aur Mutual Funds ki due dates aur status ko ek hi jagah par aasani se manage aur rollover kar sakte hain.")
+    st.write("Yahan aap apni saari LIC, Loans, RD, aur Mutual Funds ki due dates aur status ko ek hi jagah par aasani से manage aur rollover kar sakte hain.")
     
     tab_due1, tab_due2 = st.tabs(["📑 LIC & Loans Dues", "📈 RD & Mutual Funds Dues"])
     
@@ -810,12 +801,12 @@ elif menu == "Next Due Tracker":
                     due_val = str(st.session_state.rd_mf.loc[r_idx, "Timing Value"]).strip()
                     try:
                         d_parts = due_val.split("-")
-                        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+                        curr_due = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
                         if freq == "Monthly":
-                            new_due_date = add_months(curr_due_date, 1)
+                            new_due = add_months(curr_due, 1)
                         else:
-                            new_due_date = add_years(curr_due_date, 1)
-                        st.session_state.rd_mf.loc[r_idx, "Timing Value"] = new_due_date.strftime("%d-%m-%Y")
+                            new_due = add_years(curr_due, 1)
+                        st.session_state.rd_mf.loc[r_idx, "Timing Value"] = new_due.strftime("%d-%m-%Y")
                         st.session_state.rd_mf.loc[r_idx, "Status"] = "Pending"
                     except Exception as e:
                         st.error(f"Date conversion error: {e}")
