@@ -822,9 +822,8 @@ elif menu == "Reports":
             st.info("No transactions recorded yet.")
 
     with tab_rep2:
-        st.subheader("📖 Individual Item Passbook / Ledger (In & Out History)")
+        st.subheader("📖 Individual Item Passbook / Ledger with Running Balance")
         
-        # Collect all item names
         item_choices = []
         if not st.session_state.banks.empty:
             item_choices.extend([f"Bank: {b}" for b in st.session_state.banks["Bank Name"]])
@@ -841,27 +840,76 @@ elif menu == "Reports":
             
             if not st.session_state.transactions.empty:
                 df_pass = st.session_state.transactions.copy()
+                df_pass["Date"] = pd.to_datetime(df_pass["Date"])
+                df_pass = df_pass.sort_values(by="Date", ascending=True).reset_index(drop=True)
                 
-                # Filter based on selection name
+                item_type = selected_item.split(": ")[0]
                 target_name = selected_item.split(": ")[-1] if ": " in selected_item else selected_item
                 
-                # Match against Account/Card column or Submenu/Note for assets
                 df_filtered = df_pass[
                     (df_pass["Account/Card"] == target_name) | 
                     (df_pass["Submenu"] == target_name) | 
                     (df_pass["Note"].str.contains(target_name, case=False, na=False))
-                ]
+                ].copy()
                 
                 st.write(f"### Passbook History for: **{selected_item}** (Total Entries: {len(df_filtered)})")
+                
                 if not df_filtered.empty:
-                    df_filtered["Date"] = pd.to_datetime(df_filtered["Date"]).dt.date
-                    st.dataframe(df_filtered[["Date", "Type", "Submenu", "Mode", "Account/Card", "Amount", "Note"]])
+                    # Calculate Running Balance
+                    running_bal = 0.0
+                    if item_type == "Bank" and not st.session_state.banks.empty:
+                        b_row = st.session_state.banks[st.session_state.banks["Bank Name"] == target_name]
+                        if not b_row.empty:
+                            running_bal = float(b_row.iloc[0]["Opening Balance"])
+                    elif item_type == "Credit Card" and not st.session_state.cards.empty:
+                        c_row = st.session_state.cards[st.session_state.cards["Card Name"] == target_name]
+                        if not c_row.empty:
+                            running_bal = float(c_row.iloc[0]["Current Limit"]) # Available Limit
+                    elif item_type in ["RD/MF", "LIC/Loan"]:
+                        # Start with opening or 0
+                        running_bal = 0.0
+                        
+                    balances = []
+                    for idx, row in df_filtered.iterrows():
+                        amt = float(row["Amount"])
+                        t_type = row["Type"]
+                        
+                        # Determine if In or Out based on transaction type and item
+                        is_credit = False
+                        if "Income" in t_type or "Received" in t_type or "In" in t_type or "Refund" in t_type:
+                            is_credit = True
+                        elif item_type == "Credit Card" and ("Bill Payment In" in t_type or "Expense" in t_type == False):
+                            # For credit card, expense decreases limit, payment increases limit
+                            pass
+                            
+                        # Simplified direction logic for Banks / Cards / Assets
+                        if item_type == "Bank":
+                            if t_type in ["Expense", "Self-Transfer Out", "CC Bill Payment Out", "LIC/Loan Payment", "Investment (RD/MF)", "Udhar Given"]:
+                                running_bal -= amt
+                            else:
+                                running_bal += amt
+                        elif item_type == "Credit Card":
+                            if t_type in ["Expense", "Udhar Given"]:
+                                running_bal -= amt # Available limit reduces
+                            else:
+                                running_bal += amt # Limit restores or refund
+                        else:
+                            running_bal += amt
+                            
+                        balances.append(running_bal)
+                        
+                    df_filtered["Running Balance"] = balances
+                    df_filtered["Date"] = df_filtered["Date"].dt.date
+                    
+                    display_cols = [c for c in ["Date", "Type", "Submenu", "Mode", "Account/Card", "Amount", "Running Balance", "Note"] if c in df_filtered.columns]
+                    st.dataframe(df_filtered[display_cols])
+                    
+                    st.info(f"💡 **Current / Latest Closing Balance for {target_name}:** Rs. {running_bal:,.2f}")
                 else:
                     st.info(f"No direct transaction history found for '{target_name}'.")
             else:
                 st.info("No transactions recorded yet.")
         else:
-        
             st.warning("Please add Bank Accounts, Credit Cards, or Assets in Master Settings first.")
 
 # --- Permanent Footer ---
