@@ -681,13 +681,20 @@ elif menu == "Special Transactions":
     elif st_type == "LIC / Loan Installment Payment":
         st.subheader("📑 LIC / Loan Installment Payment")
         if not st.session_state.lic_loans.empty and (not st.session_state.banks.empty or not st.session_state.cards.empty):
-            ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"], key="ll_pay_sel")
+            ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"].tolist(), key="ll_pay_sel")
             
-            # Auto-fetch default installment amount from master
+            # Exact matching & dynamic session state handling to prevent amount caching bugs
+            matched_rows = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item]
             default_amt = 5000.0
-            matched_row = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item]
-            if not matched_row.empty:
-                default_amt = float(matched_row.iloc[0]["Installment / Premium"])
+            if not matched_rows.empty:
+                default_amt = float(matched_rows.iloc[0]["Installment / Premium"])
+            
+            if "prev_ll_item" not in st.session_state:
+                st.session_state.prev_ll_item = None
+
+            if st.session_state.prev_ll_item != ll_item:
+                st.session_state.prev_ll_item = ll_item
+                st.session_state["ll_amt_pay"] = default_amt
             
             ll_mode = st.selectbox("Payment Mode", ["Saving Bank Account", "Credit Card", "Cash"], key="ll_pay_mode")
             ll_acc_card = None
