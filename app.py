@@ -247,8 +247,12 @@ elif menu == "Dashboard":
     with col2:
         st.subheader("💳 Individual Credit Cards List")
         if not st.session_state.cards.empty:
-            disp_cols = [c for c in ["Card Name", "Total Limit", "Current Limit", "Billing Date", "Due Date (Day)"] if c in st.session_state.cards.columns]
-            st.dataframe(st.session_state.cards[disp_cols])
+            c_disp = st.session_state.cards.copy()
+            c_disp["Used Limit"] = c_disp["Total Limit"] - c_disp["Current Limit"]
+            c_disp["Usage %"] = (c_disp["Used Limit"] / c_disp["TotalLimit"]) * 100
+            c_disp["Usage %"] = c_disp["Usage %"].round(2).astype(str) + "%"
+            disp_cols = [c for c in ["Card Name", "Total Limit", "Current Limit", "Used Limit", "Usage %", "Billing Date", "Due Date (Day)"] if c in c_disp.columns]
+            st.dataframe(c_disp[disp_cols])
         else:
             st.info("No credit cards added yet.")
             
@@ -334,8 +338,13 @@ elif menu == "Master Settings":
         
         st.write("### Existing Credit Cards")
         if not st.session_state.cards.empty and "Card Name" in st.session_state.cards.columns:
-            disp_cols = [c for c in ["Card Name", "Total Limit", "Current Limit", "Billing Date", "Due Date (Day)"] if c in st.session_state.cards.columns]
-            st.dataframe(st.session_state.cards[disp_cols])
+            c_disp = st.session_state.cards.copy()
+            c_disp["Used Limit"] = c_disp["Total Limit"] - c_disp["Current Limit"]
+            c_disp["Usage %"] = (c_disp["Used Limit"] / c_disp["Total Limit"]) * 100
+            c_disp["Usage %"] = c_disp["Usage %"].round(2).astype(str) + "%"
+            disp_cols = [c for c in ["Card Name", "Total Limit", "Current Limit", "Used Limit", "Usage %", "Billing Date", "Due Date (Day)"] if c in c_disp.columns]
+            st.dataframe(c_disp[disp_cols])
+            
             del_card = st.selectbox("Select Card to Delete", st.session_state.cards["Card Name"], key="del_card_sel")
             if st.button("Delete Credit Card"):
                 st.session_state.cards = st.session_state.cards[st.session_state.cards["Card Name"] != del_card]
@@ -671,22 +680,49 @@ elif menu == "Special Transactions":
 
     elif st_type == "LIC / Loan Installment Payment":
         st.subheader("📑 LIC / Loan Installment Payment")
-        if not st.session_state.lic_loans.empty and not st.session_state.banks.empty:
+        if not st.session_state.lic_loans.empty and (not st.session_state.banks.empty or not st.session_state.cards.empty):
             ll_item = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"], key="ll_pay_sel")
-            bank_name = st.selectbox("Pay via Bank Account", st.session_state.banks["Bank Name"], key="ll_bank_sel")
+            
+            ll_mode = st.selectbox("Payment Mode", ["Saving Bank Account", "Credit Card", "Cash"], key="ll_pay_mode")
+            ll_acc_card = None
+            if ll_mode == "Saving Bank Account":
+                if not st.session_state.banks.empty:
+                    ll_acc_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="ll_bank_sel")
+                else:
+                    st.warning("Please add a Bank Account first.")
+            elif ll_mode == "Credit Card":
+                if not st.session_state.cards.empty:
+                    ll_acc_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="ll_card_sel")
+                else:
+                    st.warning("Please add a Credit Card first.")
+                    
             amount = st.number_input("Installment Amount Paid", value=5000.0, key="ll_amt_pay")
             
             if st.button("Pay Installment (Clears Alert)"):
-                b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == bank_name].index[0]
-                st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
-                
-                log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, "Saving Bank Account", bank_name, amount, f"Installment paid for {ll_item}")
-                
-                save_data()
-                st.success(f"✅ Installment paid for {ll_item} via {bank_name}!")
-                st.balloons()
+                can_pay = True
+                if ll_mode == "Saving Bank Account" and not ll_acc_card:
+                    can_pay = False
+                    st.error("Please select a valid Bank Account.")
+                elif ll_mode == "Credit Card" and not ll_acc_card:
+                    can_pay = False
+                    st.error("Please select a valid Credit Card.")
+                    
+                if can_pay:
+                    acc_val = ll_acc_card if ll_acc_card else "Cash"
+                    if ll_mode == "Saving Bank Account" and ll_acc_card:
+                        b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == ll_acc_card].index[0]
+                        st.session_state.banks.loc[b_idx, "Current Balance"] -= amount
+                    elif ll_mode == "Credit Card" and ll_acc_card:
+                        c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == ll_acc_card].index[0]
+                        st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
+                        
+                    log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, ll_mode, acc_val, amount, f"Installment paid for {ll_item}")
+                    
+                    save_data()
+                    st.success(f"✅ Installment paid for {ll_item} via {acc_val}!")
+                    st.balloons()
         else:
-            st.warning("Please add Bank Accounts and LIC/Loans in Master Settings first.")
+            st.warning("Please add Bank Accounts/Credit Cards and LIC/Loans in Master Settings first.")
 
 # ==================== 6. REPORTS & PASSBOOK ====================
 elif menu == "Reports":
@@ -740,6 +776,15 @@ elif menu == "Reports":
                 
             st.write(f"### Results (Total Records: {len(df_display)})")
             st.dataframe(df_display)
+            
+            # Show Total Sum for Filtered Results
+            if not df_display.empty:
+                total_filtered_amt = df_display["Amount"].sum()
+                st.markdown(f"### 💰 **Total Amount (Filtered View): Rs. {total_filtered_amt:,.2f}**")
+            
+            # Overall Total Summary across all transactions
+            overall_total = st.session_state.transactions["Amount"].sum()
+            st.markdown(f"📌 **Overall Total Transaction Amount (All Records): Rs. {overall_total:,.2f}**")
             
             if not df_rep.empty:
                 st.subheader("📊 Category / Submenu Wise Summary")
@@ -855,7 +900,6 @@ elif menu == "Reports":
                 st.write(f"### Passbook History for: **{selected_item}** (Total Entries: {len(df_filtered)})")
                 
                 if not df_filtered.empty:
-                    # Calculate Running Balance
                     running_bal = 0.0
                     if item_type == "Bank" and not st.session_state.banks.empty:
                         b_row = st.session_state.banks[st.session_state.banks["Bank Name"] == target_name]
@@ -864,9 +908,8 @@ elif menu == "Reports":
                     elif item_type == "Credit Card" and not st.session_state.cards.empty:
                         c_row = st.session_state.cards[st.session_state.cards["Card Name"] == target_name]
                         if not c_row.empty:
-                            running_bal = float(c_row.iloc[0]["Current Limit"]) # Available Limit
+                            running_bal = float(c_row.iloc[0]["Current Limit"])
                     elif item_type in ["RD/MF", "LIC/Loan"]:
-                        # Start with opening or 0
                         running_bal = 0.0
                         
                     balances = []
@@ -874,15 +917,6 @@ elif menu == "Reports":
                         amt = float(row["Amount"])
                         t_type = row["Type"]
                         
-                        # Determine if In or Out based on transaction type and item
-                        is_credit = False
-                        if "Income" in t_type or "Received" in t_type or "In" in t_type or "Refund" in t_type:
-                            is_credit = True
-                        elif item_type == "Credit Card" and ("Bill Payment In" in t_type or "Expense" in t_type == False):
-                            # For credit card, expense decreases limit, payment increases limit
-                            pass
-                            
-                        # Simplified direction logic for Banks / Cards / Assets
                         if item_type == "Bank":
                             if t_type in ["Expense", "Self-Transfer Out", "CC Bill Payment Out", "LIC/Loan Payment", "Investment (RD/MF)", "Udhar Given"]:
                                 running_bal -= amt
@@ -890,9 +924,9 @@ elif menu == "Reports":
                                 running_bal += amt
                         elif item_type == "Credit Card":
                             if t_type in ["Expense", "Udhar Given"]:
-                                running_bal -= amt # Available limit reduces
+                                running_bal -= amt
                             else:
-                                running_bal += amt # Limit restores or refund
+                                running_bal += amt
                         else:
                             running_bal += amt
                             
