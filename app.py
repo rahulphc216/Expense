@@ -962,11 +962,38 @@ elif menu == "Reports":
         item_choices.append("Cash")
         
         if item_choices:
-            selected_item = st.selectbox("Select Bank / Card / RD / Loan / LIC for Passbook", item_choices, key="passbook_sel")
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                selected_item = st.selectbox("Select Bank / Card / RD / Loan / LIC for Passbook", item_choices, key="passbook_sel")
+            with col_p2:
+                pass_filter_type = st.selectbox("Filter Period", ["All", "Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly", "Custom Date Range"], key="pass_per")
             
             if not st.session_state.transactions.empty:
                 df_pass = st.session_state.transactions.copy()
                 df_pass["Date"] = pd.to_datetime(df_pass["Date"])
+                
+                # Apply Date Filter for Passbook
+                today_dt = pd.to_datetime(current_ist_date)
+                if pass_filter_type == "Daily":
+                    df_pass = df_pass[df_pass["Date"].dt.date == current_ist_date]
+                elif pass_filter_type == "Weekly":
+                    start_week = today_dt - timedelta(days=7)
+                    df_pass = df_pass[(df_pass["Date"] >= start_week) & (df_pass["Date"] <= today_dt)]
+                elif pass_filter_type == "Monthly":
+                    df_pass = df_pass[(df_pass["Date"].dt.month == today_dt.month) & (df_pass["Date"].dt.year == today_dt.year)]
+                elif pass_filter_type == "Quarterly":
+                    current_quarter = (today_dt.month - 1) // 3 + 1
+                    df_pass = df_pass[(df_pass["Date"].dt.quarter == current_quarter) & (df_pass["Date"].dt.year == today_dt.year)]
+                elif pass_filter_type == "Half Yearly":
+                    current_half = 1 if today_dt.month <= 6 else 2
+                    df_pass = df_pass[(df_pass["Date"].dt.month.apply(lambda m: 1 if m <= 6 else 2) == current_half) & (df_pass["Date"].dt.year == today_dt.year)]
+                elif pass_filter_type == "Yearly":
+                    df_pass = df_pass[df_pass["Date"].dt.year == today_dt.year]
+                elif pass_filter_type == "Custom Date Range":
+                    pc_start = st.date_input("Start Date", value=current_ist_date, key="pass_start")
+                    pc_end = st.date_input("End Date", value=current_ist_date, key="pass_end")
+                    df_pass = df_pass[(df_pass["Date"].dt.date >= pc_start) & (df_pass["Date"].dt.date <= pc_end)]
+
                 df_pass = df_pass.sort_values(by="Date", ascending=True).reset_index(drop=True)
                 
                 item_type = selected_item.split(": ")[0]
@@ -1021,7 +1048,7 @@ elif menu == "Reports":
                     
                     st.info(f"💡 **Current / Latest Closing Balance for {target_name}:** Rs. {running_bal:,.2f}")
                 else:
-                    st.info(f"No direct transaction history found for '{target_name}'.")
+                    st.info(f"No direct transaction history found for '{target_name}' in the selected period.")
             else:
                 st.info("No transactions recorded yet.")
         else:
