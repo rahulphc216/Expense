@@ -64,6 +64,9 @@ if "data_loaded" not in st.session_state:
     st.session_state.rd_mf = pd.DataFrame(saved_data.get("rd_mf", []))
     if st.session_state.rd_mf.empty:
         st.session_state.rd_mf = pd.DataFrame(columns=["Name / Scheme", "Type", "Frequency", "Timing Value", "Linked Bank", "Installment Amount", "Opening Balance", "Status", "Start Date"])
+    else:
+        if "Status" not in st.session_state.rd_mf.columns:
+            st.session_state.rd_mf["Status"] = "Pending"
         
     st.session_state.submenus = saved_data.get("submenus", {"Patna": ["Rent", "Office"], "Barhiya": ["Vegetable", "Fruit"], "Lakhisarai": ["General"], "Others": ["Misc"]})
     
@@ -100,6 +103,19 @@ def log_transaction(t_date, t_type, loc, sub, mode, acc_card, amount, note):
     }
     st.session_state.transactions = pd.concat([st.session_state.transactions, pd.DataFrame([new_tx])], ignore_index=True)
     save_data()
+
+def add_months(sourcedate, months):
+    month = sourcedate.month - 1 + months
+    year = sourcedate.year + month // 12
+    month = month % 12 + 1
+    day = min(sourcedate.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month-1])
+    return date(year, month, day)
+
+def add_years(sourcedate, years):
+    try:
+        return sourcedate.replace(year=sourcedate.year + years)
+    except ValueError:
+        return sourcedate.replace(year=sourcedate.year + years, month=2, day=28)
 
 # --- Sidebar Navigation ---
 st.sidebar.title("Finance Manager")
@@ -173,7 +189,7 @@ elif menu == "Dashboard":
             except:
                 pass
                 
-    # LIC / Loans Alerts (Robust Rollover & Due Date Logic)
+    # LIC / Loans Alerts (Precise Date-Based Rollover Logic)
     if not st.session_state.lic_loans.empty:
         if "Status" not in st.session_state.lic_loans.columns:
             st.session_state.lic_loans["Status"] = "Pending"
@@ -182,73 +198,38 @@ elif menu == "Dashboard":
             try:
                 status_val = str(row.get("Status", "Pending")).strip().capitalize()
                 if status_val == "Pending":
-                    freq = str(row.get("Frequency", "Monthly")).strip()
                     due_val = str(row.get("Due Date Value", "")).strip()
                     
-                    if freq == "Monthly":
-                        digits = ''.join(filter(str.isdigit, due_val))
-                        if digits:
-                            due_day = int(digits)
-                            # Target date for current month
-                            try:
-                                target_date = date(current_year, current_month, due_day)
-                            except:
-                                target_date = date(current_year, current_month, 28)
-                                
-                            days_left = (target_date - current_ist_date).days
-                            if 0 <= days_left <= 7:
-                                st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** payment due in **{days_left} days** (Due on {due_day}th)!")
-                            elif days_left < 0 and abs(days_left) <= 3:
-                                st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** payment is **OVERDUE** by {abs(days_left)} days!")
-                                
-                    elif freq == "Yearly" and "-" in due_val:
+                    if "-" in due_val:
                         parts = due_val.split("-")
-                        due_m, due_d = int(parts[0]), int(parts[1])
+                        d_day, d_mon, d_yr = int(parts[0]), int(parts[1]), int(parts[2])
+                        due_dt = date(d_yr, d_mon, d_day)
                         
-                        try:
-                            due_date_this_year = date(current_year, due_m, due_d)
-                        except:
-                            due_date_this_year = date(current_year, due_m, 28)
-                            
-                        delta_days = (due_date_this_year - current_ist_date).days
+                        delta_days = (due_dt - current_ist_date).days
                         if 0 <= delta_days <= 7:
-                            st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** annual payment due in **{delta_days} days** (Due on {due_val})!")
+                            st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** payment due in **{delta_days} days** (Due on {due_val})!")
                         elif delta_days < 0 and abs(delta_days) <= 5:
-                            st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** annual payment is **OVERDUE** by {abs(delta_days)} days!")
+                            st.warning(f"🚨 **LIC/Loan Alert:** **{row['Name / Policy No']}** payment is **OVERDUE** by {abs(delta_days)} days!")
             except:
                 pass
 
     # RD / MF Due Alerts
     if not st.session_state.rd_mf.empty:
+        if "Status" not in st.session_state.rd_mf.columns:
+            st.session_state.rd_mf["Status"] = "Pending"
+            
         for idx, row in st.session_state.rd_mf.iterrows():
             try:
-                if str(row.get("Status", "")).strip().capitalize() == "Pending":
-                    freq = str(row.get("Frequency", "Monthly")).strip()
-                    timing = str(row.get("Timing Value", ""))
-                    
-                    if freq == "Monthly":
-                        digits = ''.join(filter(str.isdigit, timing))
-                        if digits:
-                            due_day = int(digits)
-                            try:
-                                target_date = date(current_year, current_month, due_day)
-                            except:
-                                target_date = date(current_year, current_month, 28)
-                                
-                            days_left = (target_date - current_ist_date).days
-                            if 0 <= days_left <= 7:
-                                st.warning(f"🚨 **RD/MF Alert:** **{row['Name / Scheme']}** installment due in **{days_left} days** (Due on {due_day}th)!")
-                    elif freq == "Yearly" and "-" in timing:
-                        parts = timing.split("-")
-                        due_m, due_d = int(parts[0]), int(parts[1])
-                        try:
-                            due_date_this_year = date(current_year, due_m, due_d)
-                        except:
-                            due_date_this_year = date(current_year, due_m, 28)
-                            
-                        delta_days = (due_date_this_year - current_ist_date).days
+                status_val = str(row.get("Status", "Pending")).strip().capitalize()
+                if status_val == "Pending":
+                    due_val = str(row.get("Timing Value", "")).strip()
+                    if "-" in due_val:
+                        parts = due_val.split("-")
+                        d_day, d_mon, d_yr = int(parts[0]), int(parts[1]), int(parts[2])
+                        due_dt = date(d_yr, d_mon, d_day)
+                        delta_days = (due_dt - current_ist_date).days
                         if 0 <= delta_days <= 7:
-                            st.warning(f"🚨 **RD/MF Alert:** **{row['Name / Scheme']}** annual installment due in **{delta_days} days**!")
+                            st.warning(f"🚨 **RD/MF Alert:** **{row['Name / Scheme']}** installment due in **{delta_days} days** (Due on {due_val})!")
             except:
                 pass
 
@@ -406,13 +387,8 @@ elif menu == "Master Settings":
             ll_amount = st.number_input("Total Amount / Sum Assured / Loan Amount", value=100000.0, key="ll_amt_in")
             ll_freq = st.selectbox("Payment Frequency", ["Monthly", "Yearly"], key="ll_freq_in")
             
-            if ll_freq == "Monthly":
-                ll_due_val = str(st.number_input("Due Day of Month (1-31)", min_value=1, max_value=31, value=10, key="ll_due_m"))
-            else:
-                col_m, col_d = st.columns(2)
-                due_month = col_m.selectbox("Due Month (MM)", list(range(1, 13)), format_func=lambda x: datetime(2000, x, 1).strftime('%B'), key="ll_due_month_sel")
-                due_day = col_d.number_input("Due Day (DD)", min_value=1, max_value=31, value=10, key="ll_due_d")
-                ll_due_val = f"{due_month:02d}-{due_day:02d}"
+            ll_due_dt = st.date_input("Next Due Date", value=current_ist_date, key="ll_due_dt_in")
+            ll_due_val = ll_due_dt.strftime("%d-%m-%Y")
 
             ll_installment = st.number_input("Installment / Premium Amount", value=5000.0, key="ll_inst_in")
             ll_status = st.selectbox("Status", ["Pending", "Completed"], key="ll_status_in")
@@ -439,8 +415,24 @@ elif menu == "Master Settings":
             if st.button("Update LIC/Loan Status"):
                 idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == edit_ll_status].index[0]
                 st.session_state.lic_loans.loc[idx, "Status"] = new_ll_status
+                
+                if new_ll_status == "Completed":
+                    freq = str(st.session_state.lic_loans.loc[idx, "Frequency"]).strip()
+                    due_val = str(st.session_state.lic_loans.loc[idx, "Due Date Value"]).strip()
+                    try:
+                        d_parts = due_val.split("-")
+                        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+                        if freq == "Monthly":
+                            new_due_date = add_months(curr_due_date, 1)
+                        else:
+                            new_due_date = add_years(curr_due_date, 1)
+                        st.session_state.lic_loans.loc[idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
+                        st.session_state.lic_loans.loc[idx, "Status"] = "Pending"
+                    except:
+                        pass
+                            
                 save_data()
-                st.success(f"✅ Status for '{edit_ll_status}' updated to {new_ll_status}!")
+                st.success(f"✅ Status for '{edit_ll_status}' updated and next due date rolled over!")
                 st.rerun()
 
             del_ll = st.selectbox("Select LIC/Loan to Delete", st.session_state.lic_loans["Name / Policy No"], key="del_ll_key")
@@ -456,17 +448,10 @@ elif menu == "Master Settings":
         with st.expander("➕ Click here to Add New RD / MF Scheme"):
             rd_name = st.text_input("Scheme / Fund Name", key="rd_name_in")
             rd_type = st.selectbox("Type", ["RD", "Mutual Fund"], key="rd_type_in")
-            rd_freq = st.selectbox("Frequency", ["Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly"], key="rd_freq_in")
+            rd_freq = st.selectbox("Frequency", ["Monthly", "Yearly"], key="rd_freq_in")
             
-            if rd_freq == "Monthly":
-                rd_timing = f"Day {st.number_input('Due Day of Month (1-31)', min_value=1, max_value=31, value=12, key='rd_m_day')}"
-            elif rd_freq == "Yearly":
-                col_m, col_d = st.columns(2)
-                rd_month = col_m.selectbox("Due Month", list(range(1, 13)), format_func=lambda x: datetime(2000, x, 1).strftime('%B'), key="rd_y_month")
-                rd_day = col_d.number_input("Due Day", min_value=1, max_value=31, value=12, key="rd_y_day")
-                rd_timing = f"{rd_month:02d}-{rd_day:02d}"
-            else:
-                rd_timing = "N/A"
+            rd_due_dt = st.date_input("Next Due Date", value=current_ist_date, key="rd_due_dt_in")
+            rd_timing = rd_due_dt.strftime("%d-%m-%Y")
                 
             if not st.session_state.banks.empty:
                 rd_bank = st.selectbox("Linked Bank Account (Deduction Source)", st.session_state.banks["Bank Name"], key="rd_bank_in")
@@ -545,6 +530,22 @@ elif menu == "Master Settings":
                                     b_idx = st.session_state.banks[st.session_state.banks["Bank Name"] == linked_b].index[0]
                                     st.session_state.banks.loc[b_idx, "Current Balance"] -= new_amt
                                     log_transaction(current_ist_date, "Investment (RD/MF)", "N/A", edit_rd, "Saving Bank Account", linked_b, new_amt, f"Installment Completed for {edit_rd}")
+                                    
+                                    # Rollover date for RD/MF
+                                    try:
+                                        d_val = str(cur_row["Timing Value"])
+                                        d_parts = d_val.split("-")
+                                        curr_due = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+                                        freq = str(cur_row["Frequency"]).strip()
+                                        if freq == "Monthly":
+                                            new_due = add_months(curr_due, 1)
+                                        else:
+                                            new_due = add_years(curr_due, 1)
+                                        st.session_state.rd_mf.loc[r_idx, "Timing Value"] = new_due.strftime("%d-%m-%Y")
+                                        st.session_state.rd_mf.loc[r_idx, "Status"] = "Pending"
+                                    except:
+                                        pass
+
                             elif old_status == "Completed" and new_status == "Completed" and old_amt != new_amt:
                                 diff = new_amt - old_amt
                                 if linked_b in st.session_state.banks["Bank Name"].values:
@@ -789,25 +790,21 @@ elif menu == "Special Transactions":
                             
                         ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
                         st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
-                            
-                        # Auto Roll-over Due Date for next cycle
+                        
                         freq = str(st.session_state.lic_loans.loc[ll_idx, "Frequency"]).strip()
                         due_val = str(st.session_state.lic_loans.loc[ll_idx, "Due Date Value"]).strip()
-                        if freq == "Monthly":
-                            try:
-                                d_day = int(''.join(filter(str.isdigit, due_val)))
-                                next_m = current_month + 1 if current_month < 12 else 1
-                                st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = str(d_day)
-                            except:
-                                pass
-                        elif freq == "Yearly" and "-" in due_val:
-                            try:
-                                parts = due_val.split("-")
-                                next_yr_str = f"{parts[0]}-{parts[1]}"
-                                st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = next_yr_str
-                            except:
-                                pass
-
+                        try:
+                            d_parts = due_val.split("-")
+                            curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+                            if freq == "Monthly":
+                                new_due_date = add_months(curr_due_date, 1)
+                            else:
+                                new_due_date = add_years(curr_due_date, 1)
+                            st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
+                            st.session_state.lic_loans.loc[ll_idx, "Status"] = "Pending"
+                        except:
+                            pass
+                            
                         log_transaction(current_ist_date, "LIC/Loan Payment", "N/A", ll_item, ll_mode, acc_val, amount, f"Installment paid for {ll_item}")
                         
                         save_data()
@@ -817,8 +814,23 @@ elif menu == "Special Transactions":
                 if st.button("Mark as Paid (Remove Alert Only)"):
                     ll_idx = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == ll_item].index[0]
                     st.session_state.lic_loans.loc[ll_idx, "Status"] = "Completed"
+                    
+                    freq = str(st.session_state.lic_loans.loc[ll_idx, "Frequency"]).strip()
+                    due_val = str(st.session_state.lic_loans.loc[ll_idx, "Due Date Value"]).strip()
+                    try:
+                        d_parts = due_val.split("-")
+                        curr_due_date = date(int(d_parts[2]), int(d_parts[1]), int(d_parts[0]))
+                        if freq == "Monthly":
+                            new_due_date = add_months(curr_due_date, 1)
+                        else:
+                            new_due_date = add_years(curr_due_date, 1)
+                        st.session_state.lic_loans.loc[ll_idx, "Due Date Value"] = new_due_date.strftime("%d-%m-%Y")
+                        st.session_state.lic_loans.loc[ll_idx, "Status"] = "Pending"
+                    except:
+                        pass
+
                     save_data()
-                    st.success(f"✅ '{ll_item}' marked as Completed and alert removed!")
+                    st.success(f"✅ '{ll_item}' marked as Completed and next due updated!")
                     st.rerun()
         else:
             st.warning("Please add Bank Accounts/Credit Cards and LIC/Loans in Master Settings first.")
