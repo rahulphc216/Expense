@@ -3,6 +3,7 @@ import streamlit as st
 from datetime import datetime, date, timedelta
 import json
 import os
+import urllib.parse
 
 st.set_page_config(page_title="Personal Finance Manager", layout="wide")
 
@@ -27,7 +28,8 @@ def load_data():
             "Lakhisarai": ["General"],
             "Others": ["Misc"]
         },
-        "transactions": []
+        "transactions": [],
+        "udhar_emi": []
     }
 
 def save_data():
@@ -37,7 +39,8 @@ def save_data():
         "lic_loans": st.session_state.lic_loans.to_dict(orient="records"),
         "rd_mf": st.session_state.rd_mf.to_dict(orient="records"),
         "submenus": st.session_state.submenus,
-        "transactions": st.session_state.transactions.to_dict(orient="records")
+        "transactions": st.session_state.transactions.to_dict(orient="records"),
+        "udhar_emi": st.session_state.udhar_emi.to_dict(orient="records")
     }
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, default=str)
@@ -73,6 +76,16 @@ if "data_loaded" not in st.session_state:
     st.session_state.transactions = pd.DataFrame(saved_data.get("transactions", []))
     if st.session_state.transactions.empty:
         st.session_state.transactions = pd.DataFrame(columns=["Date", "Type", "Location", "Submenu", "Mode", "Account/Card", "Amount", "Note"])
+        
+    # Udhar & EMI Tracker Isolated Table Initialization
+    st.session_state.udhar_emi = pd.DataFrame(saved_data.get("udhar_emi", []))
+    if st.session_state.udhar_emi.empty:
+        st.session_state.udhar_emi = pd.DataFrame(columns=[
+            "ID", "Date", "Friend Name", "Mobile Number", "Mode", "Account/Card Detail", 
+            "Initial Given Amount", "Final Confirmed Amount", "Interest / Processing Fee", 
+            "Cashback / Discount", "Total Amount to Collect", "Amount Returned", 
+            "Balance Due", "Status", "Notes"
+        ])
         
     st.session_state.data_loaded = True
 
@@ -119,7 +132,10 @@ def add_years(sourcedate, years):
 
 # --- Sidebar Navigation ---
 st.sidebar.title("Finance Manager")
-menu = st.sidebar.selectbox("Navigation", ["Add Expense", "Dashboard", "Master Settings", "Add Income", "Special Transactions", "Next Due Tracker", "Reports"])
+menu = st.sidebar.selectbox("Navigation", [
+    "Add Expense", "Dashboard", "Master Settings", "Add Income", 
+    "Special Transactions", "Next Due Tracker", "Reports", "Udhar & EMI Tracker"
+])
 
 # ==================== 1. ADD EXPENSE ====================
 if menu == "Add Expense":
@@ -856,7 +872,6 @@ elif menu == "Reports":
                 
             df_display = df_rep.copy()
             df_display["Date"] = pd.to_datetime(df_display["Date"]).dt.date
-            # Reverse order (Newest first)
             df_display = df_display.sort_values(by="Date", ascending=False).reset_index(drop=True)
                 
             st.write(f"### Results (Total Records: {len(df_display)})")
@@ -1043,8 +1058,6 @@ elif menu == "Reports":
                         
                     df_filtered["Running Balance"] = balances
                     df_filtered["Date"] = df_filtered["Date"].dt.date
-                    
-                    # Reverse order for display (Newest first)
                     df_filtered = df_filtered.iloc[::-1].reset_index(drop=True)
                     
                     display_cols = [c for c in ["Date", "Type", "Submenu", "Mode", "Account/Card", "Amount", "Running Balance", "Note"] if c in df_filtered.columns]
@@ -1101,11 +1114,151 @@ elif menu == "Reports":
             st.write("### Filtered Transactions List for Net Calculation")
             df_net_disp = df_net.copy()
             df_net_disp["Date"] = df_net_disp["Date"].dt.date
-            # Reverse order (Newest first)
             df_net_disp = df_net_disp.sort_values(by="Date", ascending=False).reset_index(drop=True)
             st.dataframe(df_net_disp)
         else:
             st.info("No transactions available to calculate net balance.")
+
+# ==================== 8. UDHAR & EMI TRACKER (Isolated Tab) ====================
+elif menu == "Udhar & EMI Tracker":
+    st.header("🤝 Dedicated Udhar & EMI Tracker")
+    st.write("Yeh tab puri tarah se isolated hai. Iska asar kisi bhi main expense report ya bank balance par nahi padega.")
+    
+    tab_u1, tab_u2, tab_u3 = st.tabs(["➕ Add New Udhar / EMI", "📋 View & Update Tracker", "💬 WhatsApp Reminders"])
+    
+    with tab_u1:
+        st.subheader("Record New Loan / Udhar Given to Friend")
+        with st.form("add_udhar_form"):
+            u_date = st.date_input("Date", value=current_ist_date, key="u_date_in")
+            f_name = st.text_input("Friend's Name")
+            f_mobile = st.text_input("Mobile Number (with country code e.g., 919876543210)")
+            u_mode = st.selectbox("Payment Mode", ["Cash", "Saving Bank Account", "Credit Card"], key="u_mode_in")
+            
+            u_acc_card = "N/A"
+            if u_mode == "Saving Bank Account":
+                if not st.session_state.banks.empty:
+                    u_acc_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="u_b_in")
+            elif u_mode == "Credit Card":
+                if not st.session_state.cards.empty:
+                    u_acc_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="u_c_in")
+                    
+            initial_amt = st.number_input("Initial Amount / Transaction Amount", value=5000.0, key="u_init_amt")
+            is_emi_card = st.checkbox("Is this via Credit Card / EMI (Actual final amount will be confirmed after bill generation)?")
+            notes = st.text_input("Additional Notes / Details")
+            
+            submitted_u = st.form_submit_button("Save Udhar Entry")
+            if submitted_u and f_name:
+                u_id = f"UDHAR_{int(datetime.utcnow().timestamp())}"
+                final_conf_amt = initial_amt if not is_emi_card else initial_amt
+                status_val = "Pending (Awaiting Bill Confirmation)" if is_emi_card else "Active"
+                
+                new_udhar_row = {
+                    "ID": u_id,
+                    "Date": str(u_date),
+                    "Friend Name": f_name,
+                    "Mobile Number": f_mobile,
+                    "Mode": u_mode,
+                    "Account/Card Detail": u_acc_card,
+                    "Initial Given Amount": initial_amt,
+                    "Final Confirmed Amount": final_conf_amt,
+                    "Interest / Processing Fee": 0.0,
+                    "Cashback / Discount": 0.0,
+                    "Total Amount to Collect": final_conf_amt,
+                    "Amount Returned": 0.0,
+                    "Balance Due": final_conf_amt,
+                    "Status": status_val,
+                    "Notes": notes + (" [Card EMI: Bill pending]" if is_emi_card else "")
+                }
+                
+                st.session_state.udhar_emi = pd.concat([st.session_state.udhar_emi, pd.DataFrame([new_udhar_row])], ignore_index=True)
+                save_data()
+                st.success(f"✅ Udhar entry for {f_name} recorded successfully!")
+                st.balloons()
+            elif submitted_u and not f_name:
+                st.error("Please enter Friend's Name.")
+
+    with tab_u2:
+        st.subheader("Manage, Update & Reconcile Udhar Entries")
+        if not st.session_state.udhar_emi.empty:
+            disp_udhar = st.session_state.udhar_emi.copy()
+            disp_udhar = disp_udhar.sort_values(by="Date", ascending=False).reset_index(drop=True)
+            st.dataframe(disp_udhar)
+            
+            st.markdown("---")
+            st.subheader("✏️ Update Card Bill Adjustments / Repayments")
+            
+            udhar_ids = st.session_state.udhar_emi["ID"].tolist()
+            selected_id = st.selectbox("Select Udhar Record ID to Update", udhar_ids)
+            
+            rec = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].iloc[0]
+            st.write(f"**Friend:** {rec['Friend Name']} | **Initial Given:** Rs. {rec['Initial Given Amount']} | **Current Balance Due:** Rs. {rec['Balance Due']}")
+            
+            with st.form("update_udhar_form"):
+                new_final_amt = st.number_input("Confirmed Final Amount (after bill generation / adjustments)", value=float(rec["Final Confirmed Amount"]))
+                interest_fee = st.number_input("Add Interest / Processing Fee", value=float(rec["Interest / Processing Fee"]))
+                cashback = st.number_input("Less Cashback / Discount", value=float(rec["Cashback / Discount"]))
+                repayment_amt = st.number_input("Amount Paid Back Now by Friend", value=0.0)
+                update_notes = st.text_input("Update Notes", value=str(rec["Notes"]))
+                
+                sub_update = st.form_submit_button("Update & Reconcile")
+                if sub_update:
+                    idx = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].index[0]
+                    
+                    total_to_collect = new_final_amt + interest_fee - cashback
+                    total_returned = float(rec["Amount Returned"]) + repayment_amt
+                    balance_due = total_to_collect - total_returned
+                    
+                    status = "Settled (Paid)" if balance_due <= 0 else "Active"
+                    
+                    st.session_state.udhar_emi.loc[idx, "Final Confirmed Amount"] = new_final_amt
+                    st.session_state.udhar_emi.loc[idx, "Interest / Processing Fee"] = interest_fee
+                    st.session_state.udhar_emi.loc[idx, "Cashback / Discount"] = cashback
+                    st.session_state.udhar_emi.loc[idx, "Total Amount to Collect"] = total_to_collect
+                    st.session_state.udhar_emi.loc[idx, "Amount Returned"] = total_returned
+                    st.session_state.udhar_emi.loc[idx, "Balance Due"] = balance_due
+                    st.session_state.udhar_emi.loc[idx, "Status"] = status
+                    st.session_state.udhar_emi.loc[idx, "Notes"] = update_notes
+                    
+                    save_data()
+                    st.success("✅ Udhar record updated successfully!")
+                    st.rerun()
+        else:
+            st.info("No Udhar entries found yet.")
+
+    with tab_u3:
+        st.subheader("💬 Send Smart WhatsApp Reminders")
+        if not st.session_state.udhar_emi.empty:
+            active_udhar = st.session_state.udhar_emi[st.session_state.udhar_emi["Balance Due"] > 0]
+            if not active_udhar.empty:
+                rem_sel_id = st.selectbox("Select Record for Reminder", active_udhar["ID"].tolist(), key="rem_sel")
+                rem_rec = active_udhar[active_udhar["ID"] == rem_sel_id].iloc[0]
+                
+                f_name_rem = rem_rec["Friend Name"]
+                f_mob_rem = str(rem_rec["Mobile Number"]).strip()
+                due_amt = rem_rec["Balance Due"]
+                mode_rem = rem_rec["Mode"]
+                acc_det = rem_rec["Account/Card Detail"]
+                init_amt = rem_rec["Initial Given Amount"]
+                
+                # Crafting exact requested WhatsApp message format
+                if "Card" in mode_rem:
+                    msg_text = f"Hello {f_name_rem}, at present Rs. {init_amt} ka transaction hua hai (Mode: Credit Card ending with {acc_det[-4:] if len(acc_det)>=4 else acc_det}). Yeh EMI/Card par hai, isliye actual final amount credit card ka bill generate hone ke baad exact confirm kiya jayega. Aapka current balance due Rs. {due_amt} hai. Please clear at the earliest."
+                else:
+                    msg_text = f"Hello {f_name_rem}, aapne Rs. {init_amt} ka udhar ({mode_rem}) liya hai. Aapka current balance due Rs. {due_amt} hai. Please payment clear kar dein."
+                
+                st.text_area("Generated WhatsApp Message Preview:", value=msg_text, height=120)
+                
+                encoded_msg = urllib.parse.quote(msg_text)
+                wa_link = f"https://wa.me/{f_mob_rem}?text={encoded_msg}" if f_mob_rem else "#"
+                
+                if f_mob_rem:
+                    st.markdown(f"### [👉 Click here to Send WhatsApp Reminder to {f_name_rem}]({wa_link})", unsafe_allow_html=True)
+                else:
+                    st.warning("Mobile number is missing or invalid for this record. Please update it.")
+            else:
+                st.info("No active dues pending for reminders.")
+        else:
+            st.info("No records found in Udhar Tracker.")
 
 # --- Permanent Footer ---
 st.markdown("---")
