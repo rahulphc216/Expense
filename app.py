@@ -77,15 +77,20 @@ if "data_loaded" not in st.session_state:
     if st.session_state.transactions.empty:
         st.session_state.transactions = pd.DataFrame(columns=["Date", "Type", "Location", "Submenu", "Mode", "Account/Card", "Amount", "Note"])
         
-    # Udhar & EMI Tracker Isolated Table Initialization
+    # Udhar & EMI Tracker Isolated Table Initialization with Opening Balance Support
     st.session_state.udhar_emi = pd.DataFrame(saved_data.get("udhar_emi", []))
     if st.session_state.udhar_emi.empty:
         st.session_state.udhar_emi = pd.DataFrame(columns=[
             "ID", "Date", "Friend Name", "Mobile Number", "Mode", "Account/Card Detail", 
-            "Initial Given Amount", "Final Confirmed Amount", "Interest / Processing Fee", 
-            "Cashback / Discount", "Total Amount to Collect", "Amount Returned", 
-            "Balance Due", "Status", "Notes"
+            "Opening Balance / Previous Due", "New Given Amount", "Final Confirmed Amount", 
+            "Interest / Processing Fee", "Cashback / Discount", "Total Amount to Collect", 
+            "Amount Returned", "Balance Due", "Status", "Notes"
         ])
+    else:
+        if "Opening Balance / Previous Due" not in st.session_state.udhar_emi.columns:
+            st.session_state.udhar_emi["Opening Balance / Previous Due"] = 0.0
+        if "New Given Amount" not in st.session_state.udhar_emi.columns:
+            st.session_state.udhar_emi["New Given Amount"] = st.session_state.udhar_emi.get("Initial Given Amount", 0.0)
         
     st.session_state.data_loaded = True
 
@@ -1121,13 +1126,13 @@ elif menu == "Reports":
 
 # ==================== 8. UDHAR & EMI TRACKER (Isolated Tab) ====================
 elif menu == "Udhar & EMI Tracker":
-    st.header("🤝 Dedicated Udhar & EMI Tracker")
+    st.header("🤝 Dedicated Udhar & EMI Tracker with Opening Balance")
     st.write("Yeh tab puri tarah se isolated hai. Iska asar kisi bhi main expense report ya bank balance par nahi padega.")
     
-    tab_u1, tab_u2, tab_u3 = st.tabs(["➕ Add New Udhar / EMI", "📋 View & Update Tracker", "💬 WhatsApp Reminders"])
+    tab_u1, tab_u2, tab_u3 = st.tabs(["➕ Add New Udhar / Opening Balance", "📋 View & Update Tracker", "💬 WhatsApp Reminders"])
     
     with tab_u1:
-        st.subheader("Record New Loan / Udhar Given to Friend")
+        st.subheader("Record New Loan / Opening Balance / New Given Amount")
         with st.form("add_udhar_form"):
             u_date = st.date_input("Date", value=current_ist_date, key="u_date_in")
             f_name = st.text_input("Friend's Name")
@@ -1142,14 +1147,15 @@ elif menu == "Udhar & EMI Tracker":
                 if not st.session_state.cards.empty:
                     u_acc_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="u_c_in")
                     
-            initial_amt = st.number_input("Initial Amount / Transaction Amount", value=5000.0, key="u_init_amt")
+            opening_due = st.number_input("Opening Balance / Previous Due (Purana Chal Raha Baaki)", value=0.0, key="u_open_amt")
+            new_given = st.number_input("New Transaction / New Given Amount", value=0.0, key="u_new_amt")
             is_emi_card = st.checkbox("Is this via Credit Card / EMI (Actual final amount will be confirmed after bill generation)?")
             notes = st.text_input("Additional Notes / Details")
             
             submitted_u = st.form_submit_button("Save Udhar Entry")
             if submitted_u and f_name:
                 u_id = f"UDHAR_{int(datetime.utcnow().timestamp())}"
-                final_conf_amt = initial_amt if not is_emi_card else initial_amt
+                total_initial = opening_due + new_given
                 status_val = "Pending (Awaiting Bill Confirmation)" if is_emi_card else "Active"
                 
                 new_udhar_row = {
@@ -1159,20 +1165,21 @@ elif menu == "Udhar & EMI Tracker":
                     "Mobile Number": f_mobile,
                     "Mode": u_mode,
                     "Account/Card Detail": u_acc_card,
-                    "Initial Given Amount": initial_amt,
-                    "Final Confirmed Amount": final_conf_amt,
+                    "Opening Balance / Previous Due": opening_due,
+                    "New Given Amount": new_given,
+                    "Final Confirmed Amount": total_initial,
                     "Interest / Processing Fee": 0.0,
                     "Cashback / Discount": 0.0,
-                    "Total Amount to Collect": final_conf_amt,
+                    "Total Amount to Collect": total_initial,
                     "Amount Returned": 0.0,
-                    "Balance Due": final_conf_amt,
+                    "Balance Due": total_initial,
                     "Status": status_val,
                     "Notes": notes + (" [Card EMI: Bill pending]" if is_emi_card else "")
                 }
                 
                 st.session_state.udhar_emi = pd.concat([st.session_state.udhar_emi, pd.DataFrame([new_udhar_row])], ignore_index=True)
                 save_data()
-                st.success(f"✅ Udhar entry for {f_name} recorded successfully!")
+                st.success(f"✅ Udhar & Opening Balance entry for {f_name} recorded successfully!")
                 st.balloons()
             elif submitted_u and not f_name:
                 st.error("Please enter Friend's Name.")
@@ -1185,15 +1192,16 @@ elif menu == "Udhar & EMI Tracker":
             st.dataframe(disp_udhar)
             
             st.markdown("---")
-            st.subheader("✏️ Update Card Bill Adjustments / Repayments")
+            st.subheader("✏️ Update Card Bill Adjustments / Repayments / Add New Transactions")
             
             udhar_ids = st.session_state.udhar_emi["ID"].tolist()
             selected_id = st.selectbox("Select Udhar Record ID to Update", udhar_ids)
             
             rec = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].iloc[0]
-            st.write(f"**Friend:** {rec['Friend Name']} | **Initial Given:** Rs. {rec['Initial Given Amount']} | **Current Balance Due:** Rs. {rec['Balance Due']}")
+            st.write(f"**Friend:** {rec['Friend Name']} | **Opening Due:** Rs. {rec.get('Opening Balance / Previous Due', 0)} | **New Given:** Rs. {rec.get('New Given Amount', 0)} | **Current Balance Due:** Rs. {rec['Balance Due']}")
             
             with st.form("update_udhar_form"):
+                add_more_given = st.number_input("Add More New Udhar Amount (if given later)", value=0.0)
                 new_final_amt = st.number_input("Confirmed Final Amount (after bill generation / adjustments)", value=float(rec["Final Confirmed Amount"]))
                 interest_fee = st.number_input("Add Interest / Processing Fee", value=float(rec["Interest / Processing Fee"]))
                 cashback = st.number_input("Less Cashback / Discount", value=float(rec["Cashback / Discount"]))
@@ -1204,13 +1212,17 @@ elif menu == "Udhar & EMI Tracker":
                 if sub_update:
                     idx = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].index[0]
                     
-                    total_to_collect = new_final_amt + interest_fee - cashback
+                    updated_new_given = float(rec.get("New Given Amount", 0)) + add_more_given
+                    updated_final_amt = new_final_amt + add_more_given
+                    
+                    total_to_collect = updated_final_amt + interest_fee - cashback
                     total_returned = float(rec["Amount Returned"]) + repayment_amt
                     balance_due = total_to_collect - total_returned
                     
                     status = "Settled (Paid)" if balance_due <= 0 else "Active"
                     
-                    st.session_state.udhar_emi.loc[idx, "Final Confirmed Amount"] = new_final_amt
+                    st.session_state.udhar_emi.loc[idx, "New Given Amount"] = updated_new_given
+                    st.session_state.udhar_emi.loc[idx, "Final Confirmed Amount"] = updated_final_amt
                     st.session_state.udhar_emi.loc[idx, "Interest / Processing Fee"] = interest_fee
                     st.session_state.udhar_emi.loc[idx, "Cashback / Discount"] = cashback
                     st.session_state.udhar_emi.loc[idx, "Total Amount to Collect"] = total_to_collect
@@ -1238,13 +1250,13 @@ elif menu == "Udhar & EMI Tracker":
                 due_amt = rem_rec["Balance Due"]
                 mode_rem = rem_rec["Mode"]
                 acc_det = rem_rec["Account/Card Detail"]
-                init_amt = rem_rec["Initial Given Amount"]
+                open_due = rem_rec.get("Opening Balance / Previous Due", 0)
+                new_giv = rem_rec.get("New Given Amount", 0)
                 
-                # Crafting exact requested WhatsApp message format
                 if "Card" in mode_rem:
-                    msg_text = f"Hello {f_name_rem}, at present Rs. {init_amt} ka transaction hua hai (Mode: Credit Card ending with {acc_det[-4:] if len(acc_det)>=4 else acc_det}). Yeh EMI/Card par hai, isliye actual final amount credit card ka bill generate hone ke baad exact confirm kiya jayega. Aapka current balance due Rs. {due_amt} hai. Please clear at the earliest."
+                    msg_text = f"Hello {f_name_rem}, at present Rs. {new_giv} ka transaction hua hai (Mode: Credit Card ending with {acc_det[-4:] if len(acc_det)>=4 else acc_det}). Yeh EMI/Card par hai, isliye actual final amount credit card ka bill generate hone ke baad exact confirm kiya jayega. Aapka total current balance due (including opening balance) Rs. {due_amt} hai. Please clear at the earliest."
                 else:
-                    msg_text = f"Hello {f_name_rem}, aapne Rs. {init_amt} ka udhar ({mode_rem}) liya hai. Aapka current balance due Rs. {due_amt} hai. Please payment clear kar dein."
+                    msg_text = f"Hello {f_name_rem}, aapka total current balance due Rs. {due_amt} hai (Opening Due: {open_due} + New Given: {new_giv} via {mode_rem}). Please payment clear kar dein."
                 
                 st.text_area("Generated WhatsApp Message Preview:", value=msg_text, height=120)
                 
