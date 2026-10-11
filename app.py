@@ -856,6 +856,8 @@ elif menu == "Reports":
                 
             df_display = df_rep.copy()
             df_display["Date"] = pd.to_datetime(df_display["Date"]).dt.date
+            # Reverse order (Newest first)
+            df_display = df_display.sort_values(by="Date", ascending=False).reset_index(drop=True)
                 
             st.write(f"### Results (Total Records: {len(df_display)})")
             st.dataframe(df_display)
@@ -1042,6 +1044,9 @@ elif menu == "Reports":
                     df_filtered["Running Balance"] = balances
                     df_filtered["Date"] = df_filtered["Date"].dt.date
                     
+                    # Reverse order for display (Newest first)
+                    df_filtered = df_filtered.iloc[::-1].reset_index(drop=True)
+                    
                     display_cols = [c for c in ["Date", "Type", "Submenu", "Mode", "Account/Card", "Amount", "Running Balance", "Note"] if c in df_filtered.columns]
                     st.dataframe(df_filtered[display_cols])
                     
@@ -1096,6 +1101,8 @@ elif menu == "Reports":
             st.write("### Filtered Transactions List for Net Calculation")
             df_net_disp = df_net.copy()
             df_net_disp["Date"] = df_net_disp["Date"].dt.date
+            # Reverse order (Newest first)
+            df_net_disp = df_net_disp.sort_values(by="Date", ascending=False).reset_index(drop=True)
             st.dataframe(df_net_disp)
         else:
             st.info("No transactions available to calculate net balance.")
