@@ -756,7 +756,7 @@ elif menu == "Special Transactions":
 # ==================== 7. NEXT DUE TRACKER (Dedicated Control Room) ====================
 elif menu == "Next Due Tracker":
     st.header("⏳ Dedicated Next Due Tracker & Control Room")
-    st.write("Yahan aap apni saari LIC, Loans, RD, aur Mutual Funds ki due dates aur status को ek hi jagah par aasani se manage aur rollover kar sakte hain.")
+    st.write("Yahan aap apni saari LIC, Loans, RD, aur Mutual Funds ki due dates aur status ko ek hi jagah par aasani se manage aur rollover kar sakte hain.")
     
     tab_due1, tab_due2 = st.tabs(["📑 LIC & Loans Dues", "📈 RD & Mutual Funds Dues"])
     
@@ -1039,7 +1039,6 @@ elif menu == "Reports":
                         if not c_row.empty:
                             running_bal = float(c_row.iloc[0]["Current Limit"])
                     elif item_type in ["RD/MF", "LIC/Loan"]:
-                        # For RD/MF/LIC, opening balance comes from scheme definition or 0 + sum of investments
                         rd_row = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == target_name]
                         if not rd_row.empty:
                             running_bal = float(rd_row.iloc[0].get("Opening Balance", 0.0))
@@ -1066,7 +1065,6 @@ elif menu == "Reports":
                             else:
                                 running_bal += amt
                         else:
-                            # For RD/MF or LIC/Loan individual passbook, add contributions/investments
                             running_bal += amt
                             
                         balances.append(running_bal)
@@ -1080,7 +1078,19 @@ elif menu == "Reports":
                     
                     st.info(f"💡 **Current / Latest Closing Balance for {target_name}:** Rs. {running_bal:,.2f}")
                 else:
-                    st.info(f"No direct transaction history found for '{target_name}' in the selected period.")
+                    # Even if no direct transactions found yet, show the Opening Balance if it's RD/MF/LIC
+                    if item_type in ["RD/MF", "LIC/Loan"]:
+                        op_val = 0.0
+                        rd_row = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == target_name]
+                        if not rd_row.empty:
+                            op_val = float(rd_row.iloc[0].get("Opening Balance", 0.0))
+                        else:
+                            ll_row = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == target_name]
+                            if not ll_row.empty:
+                                op_val = float(ll_row.iloc[0].get("Total Amount / Sum Assured", 0.0))
+                        st.info(f"💡 **Opening / Total Balance for {target_name}:** Rs. {op_val:,.2f} (No recent installment transactions logged yet)")
+                    else:
+                        st.info(f"No direct transaction history found for '{target_name}' in the selected period.")
             else:
                 st.info("No transactions recorded yet.")
         else:
