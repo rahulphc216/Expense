@@ -1129,7 +1129,6 @@ elif menu == "Udhar & EMI Tracker":
     with tab_u1:
         st.subheader("Record New Loan / Opening Balance / New Given Amount")
         
-        # Isolated Form fields without cross-mode triggers
         u_date = st.date_input("Date", value=current_ist_date, key="u_date_in")
         f_name = st.text_input("Friend's Name", key="u_fname_in")
         f_mobile = st.text_input("Mobile Number (with country code e.g., 919876543210)", key="u_mob_in")
@@ -1197,8 +1196,15 @@ elif menu == "Udhar & EMI Tracker":
             udhar_ids = st.session_state.udhar_emi["ID"].tolist()
             selected_id = st.selectbox("Select Udhar Record ID to Update", udhar_ids, key="up_id_sel")
             
+            # Fetching last updated details for the selected record automatically
             rec = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].iloc[0]
-            st.write(f"**Friend:** {rec['Friend Name']} | **Opening Due:** Rs. {rec.get('Opening Balance / Previous Due', 0)} | **New Given:** Rs. {rec.get('New Given Amount', 0)} | **Current Balance Due:** Rs. {rec['Balance Due']}")
+            
+            st.info(f"📌 **Selected Record Preview:**\n\n"
+                    f"• **Friend Name:** {rec['Friend Name']}\n"
+                    f"• **Mobile:** {rec.get('Mobile Number', 'N/A')}\n"
+                    f"• **Opening Due:** Rs. {rec.get('Opening Balance / Previous Due', 0):,.2f}\n"
+                    f"• **New Given:** Rs. {rec.get('New Given Amount', 0):,.2f}\n"
+                    f"• **Total Balance Due:** Rs. {rec['Balance Due']:,.2f}")
             
             with st.form("update_udhar_form"):
                 add_more_given = st.number_input("Add More New Udhar Amount (if given later)", value=0.0, key="up_add_more")
