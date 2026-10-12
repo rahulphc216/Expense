@@ -1196,41 +1196,41 @@ elif menu == "Udhar & EMI Tracker":
                 st.dataframe(active_df)
                 
                 st.markdown("---")
-                st.subheader("✏️ Update Card Bill Adjustments / Repayments / Add New Transactions")
+                st.subheader("💳 Update Card Bill Adjustments / Repayments")
                 
-                selected_id = st.selectbox(
-                    "Select Friend / Record to Update", 
+                selected_id_pay = st.selectbox(
+                    "Select Friend / Record to Update (Payment/Bill)", 
                     active_df["ID"].tolist(), 
                     format_func=lambda x: f"{active_df[active_df['ID'] == x]['Friend Name'].values[0]} (ID: {x} | Due: Rs. {active_df[active_df['ID'] == x]['Balance Due'].values[0]:,.2f})",
-                    key="up_id_sel"
+                    key="up_id_sel_pay"
                 )
                 
-                rec = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].iloc[0]
+                rec_pay = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id_pay].iloc[0]
                 
                 st.info(f"📌 **Selected Record Preview:**\n\n"
-                        f"• **Friend Name:** {rec['Friend Name']}\n"
-                        f"• **Mobile:** {rec.get('Mobile Number', 'N/A')}\n"
-                        f"• **Opening Due:** Rs. {rec.get('Opening Balance / Previous Due', 0):,.2f}\n"
-                        f"• **New Given:** Rs. {rec.get('New Given Amount', 0):,.2f}\n"
-                        f"• **Total Balance Due:** Rs. {rec['Balance Due']:,.2f}")
+                        f"• **Friend Name:** {rec_pay['Friend Name']}\n"
+                        f"• **Mobile:** {rec_pay.get('Mobile Number', 'N/A')}\n"
+                        f"• **Opening Due:** Rs. {rec_pay.get('Opening Balance / Previous Due', 0):,.2f}\n"
+                        f"• **New Given:** Rs. {rec_pay.get('New Given Amount', 0):,.2f}\n"
+                        f"• **Total Balance Due:** Rs. {rec_pay['Balance Due']:,.2f}")
                 
                 with st.form("update_udhar_form"):
                     add_more_given = st.number_input("Add More New Udhar Amount (if given later)", value=0.0, key="up_add_more")
-                    new_final_amt = st.number_input("Confirmed Final Amount (after bill generation / adjustments)", value=float(rec["Final Confirmed Amount"]), key="up_final_amt")
-                    interest_fee = st.number_input("Add Interest / Processing Fee", value=float(rec["Interest / Processing Fee"]), key="up_int_fee")
-                    cashback = st.number_input("Less Cashback / Discount", value=float(rec["Cashback / Discount"]), key="up_cb")
+                    new_final_amt = st.number_input("Confirmed Final Amount (after bill generation / adjustments)", value=float(rec_pay["Final Confirmed Amount"]), key="up_final_amt")
+                    interest_fee = st.number_input("Add Interest / Processing Fee", value=float(rec_pay["Interest / Processing Fee"]), key="up_int_fee")
+                    cashback = st.number_input("Less Cashback / Discount", value=float(rec_pay["Cashback / Discount"]), key="up_cb")
                     repayment_amt = st.number_input("Amount Paid Back Now by Friend", value=0.0, key="up_rep_amt")
-                    update_notes = st.text_input("Update Notes", value=str(rec["Notes"]), key="up_notes")
+                    update_notes = st.text_input("Update Notes", value=str(rec_pay["Notes"]), key="up_notes")
                     
                     sub_update = st.form_submit_button("Update & Reconcile")
                     if sub_update:
-                        idx = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].index[0]
+                        idx = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id_pay].index[0]
                         
-                        updated_new_given = float(rec.get("New Given Amount", 0)) + add_more_given
+                        updated_new_given = float(rec_pay.get("New Given Amount", 0)) + add_more_given
                         updated_final_amt = new_final_amt + add_more_given
                         
                         total_to_collect = updated_final_amt + interest_fee - cashback
-                        total_returned = float(rec["Amount Returned"]) + repayment_amt
+                        total_returned = float(rec_pay["Amount Returned"]) + repayment_amt
                         balance_due = total_to_collect - total_returned
                         
                         status = "Settled (Paid)" if balance_due <= 0 else "Active"
@@ -1252,8 +1252,14 @@ elif menu == "Udhar & EMI Tracker":
                 st.markdown("---")
                 st.subheader("🛠️ Edit or Delete Record Details")
                 
-                # Fetch fresh record state for edit form
-                rec_edit = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].iloc[0]
+                selected_id_edit = st.selectbox(
+                    "Select Friend / Record to Edit or Delete", 
+                    active_df["ID"].tolist(), 
+                    format_func=lambda x: f"{active_df[active_df['ID'] == x]['Friend Name'].values[0]} (ID: {x} | Due: Rs. {active_df[active_df['ID'] == x]['Balance Due'].values[0]:,.2f})",
+                    key="up_id_sel_edit"
+                )
+                
+                rec_edit = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id_edit].iloc[0]
                 
                 with st.form("edit_master_udhar_form"):
                     edit_fname = st.text_input("Edit Friend Name", value=str(rec_edit["Friend Name"]), key="edit_f_name")
@@ -1270,7 +1276,7 @@ elif menu == "Udhar & EMI Tracker":
                         submitted_del_rec = st.form_submit_button("❌ Delete Record")
                         
                     if submitted_edit_rec:
-                        idx = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].index[0]
+                        idx = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id_edit].index[0]
                         total_init = edit_open + edit_new_giv
                         cur_returned = float(rec_edit["Amount Returned"])
                         new_due_val = total_init + float(rec_edit["Interest / Processing Fee"]) - float(rec_edit["Cashback / Discount"]) - cur_returned
@@ -1289,7 +1295,7 @@ elif menu == "Udhar & EMI Tracker":
                         st.rerun()
                         
                     if submitted_del_rec:
-                        st.session_state.udhar_emi = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] != selected_id].reset_index(drop=True)
+                        st.session_state.udhar_emi = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] != selected_id_edit].reset_index(drop=True)
                         save_data()
                         st.success("✅ Record deleted successfully!")
                         st.rerun()
