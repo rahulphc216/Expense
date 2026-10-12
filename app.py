@@ -22,6 +22,7 @@ def load_data():
         "cards": [],
         "lic_loans": [],
         "rd_mf": [],
+        "rd_mf_ledger": [], # Dedicated standalone ledger for RD & MF
         "submenus": {
             "Patna": ["Rent", "Office"],
             "Barhiya": ["Vegetable", "Fruit"],
@@ -38,6 +39,7 @@ def save_data():
         "cards": st.session_state.cards.to_dict(orient="records"),
         "lic_loans": st.session_state.lic_loans.to_dict(orient="records"),
         "rd_mf": st.session_state.rd_mf.to_dict(orient="records"),
+        "rd_mf_ledger": st.session_state.rd_mf_ledger.to_dict(orient="records"),
         "submenus": st.session_state.submenus,
         "transactions": st.session_state.transactions.to_dict(orient="records"),
         "udhar_emi": st.session_state.udhar_emi.to_dict(orient="records")
@@ -70,6 +72,10 @@ if "data_loaded" not in st.session_state:
     else:
         if "Status" not in st.session_state.rd_mf.columns:
             st.session_state.rd_mf["Status"] = "Pending"
+
+    st.session_state.rd_mf_ledger = pd.DataFrame(saved_data.get("rd_mf_ledger", []))
+    if st.session_state.rd_mf_ledger.empty:
+        st.session_state.rd_mf_ledger = pd.DataFrame(columns=["Date", "Scheme Name", "Mode", "Account/Card", "Amount", "Note"])
         
     st.session_state.submenus = saved_data.get("submenus", {"Patna": ["Rent", "Office"], "Barhiya": ["Vegetable", "Fruit"], "Lakhisarai": ["General"], "Others": ["Misc"]})
     
@@ -121,6 +127,18 @@ def log_transaction(t_date, t_type, loc, sub, mode, acc_card, amount, note):
         "Note": note
     }
     st.session_state.transactions = pd.concat([st.session_state.transactions, pd.DataFrame([new_tx])], ignore_index=True)
+    save_data()
+
+def log_rd_mf_transaction(t_date, scheme_name, mode, acc_card, amount, note):
+    new_rd_tx = {
+        "Date": str(t_date),
+        "Scheme Name": scheme_name,
+        "Mode": mode,
+        "Account/Card": acc_card,
+        "Amount": amount,
+        "Note": note
+    }
+    st.session_state.rd_mf_ledger = pd.concat([st.session_state.rd_mf_ledger, pd.DataFrame([new_rd_tx])], ignore_index=True)
     save_data()
 
 def add_months(sourcedate, months):
@@ -710,8 +728,7 @@ elif menu == "Special Transactions":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
                     acc_val = ll_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
-                    # DIRECT FIX: Store scheme name as Submenu and Account/Card as Scheme name so Passbook catches it instantly
-                    log_transaction(current_ist_date, "Investment (LIC/Loan)", ll_item, ll_item, ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", ll_item, amount, f"Installment paid for {ll_item}")
+                    log_transaction(current_ist_date, "Investment (LIC/Loan)", ll_item, ll_item, ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {ll_item}")
                             
                     save_data()
                     st.success(f"✅ Payment recorded for {ll_item} successfully!")
@@ -746,11 +763,12 @@ elif menu == "Special Transactions":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
                     acc_val = rd_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
-                    # DIRECT FIX: Store scheme name as Account/Card and Submenu so Passbook catches it instantly
-                    log_transaction(current_ist_date, "Investment (RD/MF)", rd_item, rd_item, rd_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", rd_item, amount, f"Installment paid for {rd_item}")
+                    
+                    # DEDICATED LOGGING TO STANDALONE RD/MF LEDGER
+                    log_rd_mf_transaction(current_ist_date, rd_item, rd_mode if pay_action == 'Pay via Bank / Card (Deducts Balance)' else 'Cash', acc_val, amount, f"Installment paid via {acc_val}")
                             
                     save_data()
-                    st.success(f"✅ Payment updated for {rd_item} successfully!")
+                    st.success(f"✅ Payment updated for {rd_item} successfully in dedicated RD/MF ledger!")
                     st.balloons()
             else:
                 st.warning("Please add RD/MF and Bank/Cards in Master Settings first.")
@@ -817,6 +835,11 @@ elif menu == "Next Due Tracker":
                         new_due = add_months(curr_due, 1) if freq == "Monthly" else add_years(curr_due, 1)
                         st.session_state.rd_mf.loc[r_idx, "Timing Value"] = new_due.strftime("%d-%m-%Y")
                         st.session_state.rd_mf.loc[r_idx, "Status"] = "Pending"
+                        
+                        # Also log automatically to standalone RD/MF ledger on rollover completion
+                        scheme_amt = float(st.session_state.rd_mf.loc[r_idx, "Installment Amount"])
+                        linked_bank = str(st.session_state.rd_mf.loc[r_idx, "Linked Bank"])
+                        log_rd_mf_transaction(current_ist_date, sel_rd, "Saving Bank Account", linked_bank, scheme_amt, "Rollover payment from Next Due Tracker")
                     except Exception as e:
                         st.error(f"Date conversion error: {e}")
                     save_data()
@@ -842,7 +865,7 @@ elif menu == "Reports":
             with col_f1:
                 filter_type = st.selectbox("Filter Period", ["All", "Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly", "Custom Date Range"], key="rep_per")
             with col_f2:
-                tx_type_filter = st.selectbox("Transaction Type", ["All", "Expense", "Income", "Investment (RD/MF)", "Investment (LIC/Loan)"], key="rep_type")
+                tx_type_filter = st.selectbox("Transaction Type", ["All", "Expense", "Income"], key="rep_type")
             with col_f3:
                 all_modes = ["All"] + list(st.session_state.transactions["Account/Card"].unique())
                 account_filter = st.selectbox("Filter by Bank/Card/Cash", all_modes, key="rep_acc")
@@ -1014,105 +1037,128 @@ elif menu == "Reports":
         pass_filter_type = st.selectbox("Filter Period", ["All", "Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly", "Custom Date Range"], key="pass_per")
         
         if target_name:
-            if not st.session_state.transactions.empty:
-                df_pass = st.session_state.transactions.copy()
-                df_pass["Date"] = pd.to_datetime(df_pass["Date"])
+            if item_type == "RD/MF":
+                # STANDALONE LEDGER LOGIC FOR RD & MUTUAL FUNDS
+                rd_row = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == target_name]
+                opening_val = float(rd_row.iloc[0].get("Opening Balance", 0.0)) if not rd_row.empty else 0.0
                 
-                today_dt = pd.to_datetime(current_ist_date)
-                if pass_filter_type == "Daily":
-                    df_pass = df_pass[df_pass["Date"].dt.date == current_ist_date]
-                elif pass_filter_type == "Weekly":
-                    start_week = today_dt - timedelta(days=7)
-                    df_pass = df_pass[(df_pass["Date"] >= start_week) & (df_pass["Date"] <= today_dt)]
-                elif pass_filter_type == "Monthly":
-                    df_pass = df_pass[(df_pass["Date"].dt.month == today_dt.month) & (df_pass["Date"].dt.year == today_dt.year)]
-                elif pass_filter_type == "Quarterly":
-                    current_quarter = (today_dt.month - 1) // 3 + 1
-                    df_pass = df_pass[(df_pass["Date"].dt.quarter == current_quarter) & (df_pass["Date"].dt.year == today_dt.year)]
-                elif pass_filter_type == "Half Yearly":
-                    current_half = 1 if today_dt.month <= 6 else 2
-                    df_pass = df_pass[(df_pass["Date"].dt.month.apply(lambda m: 1 if m <= 6 else 2) == current_half) & (df_pass["Date"].dt.year == today_dt.year)]
-                elif pass_filter_type == "Yearly":
-                    df_pass = df_pass[df_pass["Date"].dt.year == today_dt.year]
-                elif pass_filter_type == "Custom Date Range":
-                    pc_start = st.date_input("Start Date", value=current_ist_date, key="pass_start")
-                    pc_end = st.date_input("End Date", value=current_ist_date, key="pass_end")
-                    df_pass = df_pass[(df_pass["Date"].dt.date >= pc_start) & (df_pass["Date"].dt.date <= pc_end)]
-
-                df_pass = df_pass.sort_values(by="Date", ascending=True).reset_index(drop=True)
+                df_rd_ledger = st.session_state.rd_mf_ledger.copy() if not st.session_state.rd_mf_ledger.empty else pd.DataFrame(columns=["Date", "Scheme Name", "Mode", "Account/Card", "Amount", "Note"])
                 
-                # FOOLPROOF MATCHING: Match if target_name is in Account/Card OR Submenu OR Note OR Mode (case-insensitive)
-                df_filtered = df_pass[
-                    df_pass.apply(lambda row: target_name.lower() in str(row["Account/Card"]).lower() or 
-                                               target_name.lower() in str(row["Submenu"]).lower() or 
-                                               target_name.lower() in str(row["Note"]).lower() or
-                                               target_name.lower() in str(row["Mode"]).lower(), axis=1)
-                ].copy()
-                
-                st.write(f"### Passbook History for: **{target_name}** (Total Entries: {len(df_filtered)})")
-                
-                running_bal = 0.0
-                if item_type == "Bank" and not st.session_state.banks.empty:
-                    b_row = st.session_state.banks[st.session_state.banks["Bank Name"] == target_name]
-                    if not b_row.empty:
-                        running_bal = float(b_row.iloc[0]["Opening Balance"])
-                elif item_type == "Credit Card" and not st.session_state.cards.empty:
-                    c_row = st.session_state.cards[st.session_state.cards["Card Name"] == target_name]
-                    if not c_row.empty:
-                        running_bal = float(c_row.iloc[0]["Current Limit"])
-                elif item_type == "RD/MF" and not st.session_state.rd_mf.empty:
-                    rd_row = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == target_name]
-                    if not rd_row.empty:
-                        running_bal = float(rd_row.iloc[0].get("Opening Balance", 0.0))
-                elif item_type == "LIC/Loan" and not st.session_state.lic_loans.empty:
-                    ll_row = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == target_name]
-                    if not ll_row.empty:
-                        running_bal = float(ll_row.iloc[0].get("Total Amount / Sum Assured", 0.0))
+                if not df_rd_ledger.empty and "Scheme Name" in df_rd_ledger.columns:
+                    df_filtered = df_rd_ledger[df_rd_ledger["Scheme Name"] == target_name].copy()
                 else:
-                    running_bal = 0.0
-                    
+                    df_filtered = pd.DataFrame(columns=["Date", "Scheme Name", "Mode", "Account/Card", "Amount", "Note"])
+                
+                st.write(f"### Passbook History for RD/MF: **{target_name}** (Total Entries: {len(df_filtered)})")
+                
+                running_bal = opening_val
                 if not df_filtered.empty:
+                    df_filtered["Date"] = pd.to_datetime(df_filtered["Date"])
+                    df_filtered = df_filtered.sort_values(by="Date", ascending=True).reset_index(drop=True)
+                    
                     balances = []
                     for idx, row in df_filtered.iterrows():
                         amt = float(row["Amount"])
-                        t_type = row["Type"]
-                        
-                        if item_type == "Bank":
-                            if t_type in ["Expense", "Self-Transfer Out", "CC Bill Payment Out", "LIC/Loan Payment", "Investment (RD/MF)", "Investment (LIC/Loan)", "Udhar Given"]:
-                                running_bal -= amt
-                            else:
-                                running_bal += amt
-                        elif item_type == "Credit Card":
-                            if t_type in ["Expense", "Udhar Given", "Investment (RD/MF)", "Investment (LIC/Loan)"]:
-                                running_bal -= amt
-                            else:
-                                running_bal += amt
-                        else:
-                            running_bal += amt
-                            
+                        running_bal += amt
                         balances.append(running_bal)
                         
                     df_filtered["Running Balance"] = balances
                     df_filtered["Date"] = df_filtered["Date"].dt.date
-                    df_filtered = df_filtered.iloc[::-1].reset_index(drop=True)
+                    df_filtered = df_filtered.iloc[::-1].reset_index(drop=True) # Latest on top
                     
-                    display_cols = [c for c in ["Date", "Type", "Submenu", "Mode", "Account/Card", "Amount", "Running Balance", "Note"] if c in df_filtered.columns]
+                    display_cols = [c for c in ["Date", "Scheme Name", "Mode", "Account/Card", "Amount", "Running Balance", "Note"] if c in df_filtered.columns]
                     st.dataframe(df_filtered[display_cols])
                     
-                    st.info(f"💡 **Current / Latest Closing Balance for {target_name}:** Rs. {running_bal:,.2f}")
+                    st.info(f"💡 **Current / Latest Total Balance for {target_name}:** Rs. {running_bal:,.2f} (Opening: Rs. {opening_val:,.2f} + Installments)")
                 else:
-                    st.info(f"💡 **Opening Balance for {target_name}:** Rs. {running_bal:,.2f} (No installment transactions logged yet)")
+                    st.info(f"💡 **Opening Balance for {target_name}:** Rs. {opening_val:,.2f} (No installment transactions logged yet)")
             else:
-                op_val = 0.0
-                if item_type == "RD/MF" and not st.session_state.rd_mf.empty:
-                    rd_row = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == target_name]
-                    if not rd_row.empty:
-                        op_val = float(rd_row.iloc[0].get("Opening Balance", 0.0))
-                elif item_type == "LIC/Loan" and not st.session_state.lic_loans.empty:
-                    ll_row = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == target_name]
-                    if not ll_row.empty:
-                        op_val = float(ll_row.iloc[0].get("Total Amount / Sum Assured", 0.0))
-                st.info(f"💡 **Opening Balance for {target_name}:** Rs. {op_val:,.2f} (No transactions recorded yet)")
+                # EXISTING BANK / CC / LIC PASSBOOK LOGIC
+                if not st.session_state.transactions.empty:
+                    df_pass = st.session_state.transactions.copy()
+                    df_pass["Date"] = pd.to_datetime(df_pass["Date"])
+                    
+                    today_dt = pd.to_datetime(current_ist_date)
+                    if pass_filter_type == "Daily":
+                        df_pass = df_pass[df_pass["Date"].dt.date == current_ist_date]
+                    elif pass_filter_type == "Weekly":
+                        start_week = today_dt - timedelta(days=7)
+                        df_pass = df_pass[(df_pass["Date"] >= start_week) & (df_pass["Date"] <= today_dt)]
+                    elif pass_filter_type == "Monthly":
+                        df_pass = df_pass[(df_pass["Date"].dt.month == today_dt.month) & (df_pass["Date"].dt.year == today_dt.year)]
+                    elif pass_filter_type == "Quarterly":
+                        current_quarter = (today_dt.month - 1) // 3 + 1
+                        df_pass = df_pass[(df_pass["Date"].dt.quarter == current_quarter) & (df_pass["Date"].dt.year == today_dt.year)]
+                    elif pass_filter_type == "Half Yearly":
+                        current_half = 1 if today_dt.month <= 6 else 2
+                        df_pass = df_pass[(df_pass["Date"].dt.month.apply(lambda m: 1 if m <= 6 else 2) == current_half) & (df_pass["Date"].dt.year == today_dt.year)]
+                    elif pass_filter_type == "Yearly":
+                        df_pass = df_pass[df_pass["Date"].dt.year == today_dt.year]
+                    elif pass_filter_type == "Custom Date Range":
+                        pc_start = st.date_input("Start Date", value=current_ist_date, key="pass_start")
+                        pc_end = st.date_input("End Date", value=current_ist_date, key="pass_end")
+                        df_pass = df_pass[(df_pass["Date"].dt.date >= pc_start) & (df_pass["Date"].dt.date <= pc_end)]
+
+                    df_pass = df_pass.sort_values(by="Date", ascending=True).reset_index(drop=True)
+                    
+                    df_filtered = df_pass[
+                        df_pass.apply(lambda row: target_name.lower() in str(row["Account/Card"]).lower() or 
+                                                   target_name.lower() in str(row["Submenu"]).lower() or 
+                                                   target_name.lower() in str(row["Note"]).lower() or
+                                                   target_name.lower() in str(row["Mode"]).lower(), axis=1)
+                    ].copy()
+                    
+                    st.write(f"### Passbook History for: **{target_name}** (Total Entries: {len(df_filtered)})")
+                    
+                    running_bal = 0.0
+                    if item_type == "Bank" and not st.session_state.banks.empty:
+                        b_row = st.session_state.banks[st.session_state.banks["Bank Name"] == target_name]
+                        if not b_row.empty:
+                            running_bal = float(b_row.iloc[0]["Opening Balance"])
+                    elif item_type == "Credit Card" and not st.session_state.cards.empty:
+                        c_row = st.session_state.cards[st.session_state.cards["Card Name"] == target_name]
+                        if not c_row.empty:
+                            running_bal = float(c_row.iloc[0]["Current Limit"])
+                    elif item_type == "LIC/Loan" and not st.session_state.lic_loans.empty:
+                        ll_row = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == target_name]
+                        if not ll_row.empty:
+                            running_bal = float(ll_row.iloc[0].get("Total Amount / Sum Assured", 0.0))
+                    else:
+                        running_bal = 0.0
+                        
+                    if not df_filtered.empty:
+                        balances = []
+                        for idx, row in df_filtered.iterrows():
+                            amt = float(row["Amount"])
+                            t_type = row["Type"]
+                            
+                            if item_type == "Bank":
+                                if t_type in ["Expense", "Self-Transfer Out", "CC Bill Payment Out", "LIC/Loan Payment", "Investment (RD/MF)", "Investment (LIC/Loan)", "Udhar Given"]:
+                                    running_bal -= amt
+                                else:
+                                    running_bal += amt
+                            elif item_type == "Credit Card":
+                                if t_type in ["Expense", "Udhar Given", "Investment (RD/MF)", "Investment (LIC/Loan)"]:
+                                    running_bal -= amt
+                                else:
+                                    running_bal += amt
+                            else:
+                                running_bal += amt
+                                
+                            balances.append(running_bal)
+                            
+                        df_filtered["Running Balance"] = balances
+                        df_filtered["Date"] = df_filtered["Date"].dt.date
+                        df_filtered = df_filtered.iloc[::-1].reset_index(drop=True)
+                        
+                        display_cols = [c for c in ["Date", "Type", "Submenu", "Mode", "Account/Card", "Amount", "Running Balance", "Note"] if c in df_filtered.columns]
+                        st.dataframe(df_filtered[display_cols])
+                        
+                        st.info(f"💡 **Current / Latest Closing Balance for {target_name}:** Rs. {running_bal:,.2f}")
+                    else:
+                        st.info(f"💡 **Opening Balance for {target_name}:** Rs. {running_bal:,.2f} (No transactions recorded yet)")
+                else:
+                    st.info(f"No transactions recorded yet.")
 
     with tab_rep3:
         st.subheader("💰 Net Balance Summary (Total Income - Total Expense)")
@@ -1407,4 +1453,4 @@ elif menu == "Udhar & EMI Tracker":
 
 # --- Permanent Footer ---
 st.markdown("---")
-st.markdown("<p style='text-align: center; color: gray; font-size: 14px;'>Designed and developed by Rahul</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: gray; font-size: 14px;'>Designed and developed by Rahul</p>", unsafe_app=True)
