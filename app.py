@@ -83,13 +83,15 @@ if "data_loaded" not in st.session_state:
             "ID", "Date", "Friend Name", "Mobile Number", "Mode", "Account/Card Detail", 
             "Opening Balance / Previous Due", "New Given Amount", "Final Confirmed Amount", 
             "Interest / Processing Fee", "Cashback / Discount", "Total Amount to Collect", 
-            "Amount Returned", "Balance Due", "Status", "Notes"
+            "Amount Returned", "Balance Due", "Status", "Is EMI", "Notes"
         ])
     else:
         if "Opening Balance / Previous Due" not in st.session_state.udhar_emi.columns:
             st.session_state.udhar_emi["Opening Balance / Previous Due"] = 0.0
         if "New Given Amount" not in st.session_state.udhar_emi.columns:
             st.session_state.udhar_emi["New Given Amount"] = st.session_state.udhar_emi.get("Initial Given Amount", 0.0)
+        if "Is EMI" not in st.session_state.udhar_emi.columns:
+            st.session_state.udhar_emi["Is EMI"] = False
         
     st.session_state.data_loaded = True
 
@@ -1173,6 +1175,7 @@ elif menu == "Udhar & EMI Tracker":
                     "Amount Returned": 0.0,
                     "Balance Due": total_initial,
                     "Status": status_val,
+                    "Is EMI": is_emi_card,
                     "Notes": notes + (" [Card EMI: Bill pending]" if is_emi_card else "")
                 }
                 
@@ -1196,7 +1199,6 @@ elif menu == "Udhar & EMI Tracker":
             udhar_ids = st.session_state.udhar_emi["ID"].tolist()
             selected_id = st.selectbox("Select Udhar Record ID to Update", udhar_ids, key="up_id_sel")
             
-            # Fetching last updated details for the selected record automatically
             rec = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].iloc[0]
             
             st.info(f"📌 **Selected Record Preview:**\n\n"
@@ -1258,13 +1260,18 @@ elif menu == "Udhar & EMI Tracker":
                 acc_det = rem_rec["Account/Card Detail"]
                 open_due = rem_rec.get("Opening Balance / Previous Due", 0)
                 new_giv = rem_rec.get("New Given Amount", 0)
+                is_emi = rem_rec.get("Is EMI", False)
                 
-                if "Card" in mode_rem:
-                    msg_text = f"Hello {f_name_rem}, at present Rs. {new_giv} ka transaction hua hai (Mode: Credit Card ending with {acc_det[-4:] if len(acc_det)>=4 else acc_det}). Yeh EMI/Card par hai, isliye actual final amount credit card ka bill generate hone ke baad exact confirm kiya jayega. Aapka total current balance due (including opening balance) Rs. {due_amt} hai. Please clear at the earliest."
+                # Crafting message in ALL CAPITAL LETTERS based on Is EMI flag check
+                if is_emi:
+                    msg_text = f"HELLO {f_name_rem}, AT PRESENT RS. {new_giv} KA TRANSACTION HUA HAI (MODE: CREDIT CARD ENDING WITH {acc_det[-4:] if len(acc_det)>=4 else acc_det}). YEH EMI/CARD PAR HAI, ISLIYE ACTUAL FINAL AMOUNT CREDIT CARD KA BILL GENERATE HONE KE BAAD EXACT CONFIRM KIYA JAYEGA. AAPKA TOTAL CURRENT BALANCE DUE (INCLUDING OPENING BALANCE) RS. {due_amt} HAI. PLEASE CLEAR AT THE EARLIEST."
                 else:
-                    msg_text = f"Hello {f_name_rem}, aapka total current balance due Rs. {due_amt} hai (Opening Due: {open_due} + New Given: {new_giv} via {mode_rem}). Please payment clear kar dein."
+                    if "Card" in mode_rem:
+                        msg_text = f"HELLO {f_name_rem}, AT PRESENT RS. {new_giv} KA TRANSACTION HUA HAI (MODE: CREDIT CARD ENDING WITH {acc_det[-4:] if len(acc_det)>=4 else acc_det}). AAPKA TOTAL CURRENT BALANCE DUE RS. {due_amt} HAI. PLEASE PAYMENT CLEAR KAR DEIN."
+                    else:
+                        msg_text = f"HELLO {f_name_rem}, AAPKA TOTAL CURRENT BALANCE DUE RS. {due_amt} HAI (OPENING DUE: {open_due} + NEW GIVEN: {new_giv} VIA {mode_rem}). PLEASE PAYMENT CLEAR KAR DEIN."
                 
-                st.text_area("Generated WhatsApp Message Preview:", value=msg_text, height=120, key="wa_preview_area")
+                st.text_area("Generated WhatsApp Message Preview (ALL CAPS):", value=msg_text, height=120, key="wa_preview_area")
                 
                 encoded_msg = urllib.parse.quote(msg_text)
                 wa_link = f"https://wa.me/{f_mob_rem}?text={encoded_msg}" if f_mob_rem else "#"
