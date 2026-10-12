@@ -764,7 +764,7 @@ elif menu == "Special Transactions":
                             
                     acc_val = rd_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
                     
-                    # LOG TO DEDICATED RD/MF LEDGER
+                    # LOG TO STANDALONE RD/MF LEDGER
                     log_rd_mf_transaction(current_ist_date, rd_item, rd_mode if pay_action == 'Pay via Bank / Card (Deducts Balance)' else 'Cash', acc_val, amount, f"Installment paid via {acc_val}")
                             
                     save_data()
@@ -836,7 +836,6 @@ elif menu == "Next Due Tracker":
                         st.session_state.rd_mf.loc[r_idx, "Timing Value"] = new_due.strftime("%d-%m-%Y")
                         st.session_state.rd_mf.loc[r_idx, "Status"] = "Pending"
                         
-                        # Log to standalone RD/MF ledger
                         scheme_amt = float(st.session_state.rd_mf.loc[r_idx, "Installment Amount"])
                         linked_bank = str(st.session_state.rd_mf.loc[r_idx, "Linked Bank"])
                         log_rd_mf_transaction(current_ist_date, sel_rd, "Saving Bank Account", linked_bank, scheme_amt, "Rollover payment from Next Due Tracker")
