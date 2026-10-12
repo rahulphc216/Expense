@@ -710,8 +710,8 @@ elif menu == "Special Transactions":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
                     acc_val = ll_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
-                    # CRITICAL FIX: Ensure Account/Card and Submenu explicitly store the scheme name so passbook captures it
-                    log_transaction(current_ist_date, "Investment (LIC/Loan)", ll_item, ll_item, ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {ll_item}")
+                    # DIRECT FIX: Store scheme name as Submenu and Account/Card as Scheme name so Passbook catches it instantly
+                    log_transaction(current_ist_date, "Investment (LIC/Loan)", ll_item, ll_item, ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", ll_item, amount, f"Installment paid for {ll_item}")
                             
                     save_data()
                     st.success(f"✅ Payment recorded for {ll_item} successfully!")
@@ -746,8 +746,8 @@ elif menu == "Special Transactions":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
                     acc_val = rd_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
-                    # CRITICAL FIX: Ensure Account/Card and Submenu explicitly store the scheme name so passbook captures it
-                    log_transaction(current_ist_date, "Investment (RD/MF)", rd_item, rd_item, rd_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {rd_item}")
+                    # DIRECT FIX: Store scheme name as Account/Card and Submenu so Passbook catches it instantly
+                    log_transaction(current_ist_date, "Investment (RD/MF)", rd_item, rd_item, rd_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", rd_item, amount, f"Installment paid for {rd_item}")
                             
                     save_data()
                     st.success(f"✅ Payment updated for {rd_item} successfully!")
@@ -1041,11 +1041,12 @@ elif menu == "Reports":
 
                 df_pass = df_pass.sort_values(by="Date", ascending=True).reset_index(drop=True)
                 
-                # ULTRA-SECURE FILTERING: Check Account/Card OR Submenu OR Note OR Mode explicitly containing target_name
+                # FOOLPROOF MATCHING: Match if target_name is in Account/Card OR Submenu OR Note OR Mode (case-insensitive)
                 df_filtered = df_pass[
-                    (df_pass["Account/Card"].str.contains(target_name, case=False, na=False)) | 
-                    (df_pass["Submenu"].str.contains(target_name, case=False, na=False)) | 
-                    (df_pass["Note"].str.contains(target_name, case=False, na=False))
+                    df_pass.apply(lambda row: target_name.lower() in str(row["Account/Card"]).lower() or 
+                                               target_name.lower() in str(row["Submenu"]).lower() or 
+                                               target_name.lower() in str(row["Note"]).lower() or
+                                               target_name.lower() in str(row["Mode"]).lower(), axis=1)
                 ].copy()
                 
                 st.write(f"### Passbook History for: **{target_name}** (Total Entries: {len(df_filtered)})")
