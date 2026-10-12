@@ -710,7 +710,8 @@ elif menu == "Special Transactions":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
                     acc_val = ll_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
-                    log_transaction(current_ist_date, "Investment (LIC/Loan)", ll_item, f"Payment for {ll_item}", ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment paid via {ll_acc_card if pay_action == 'Pay via Bank / Card (Deducts Balance)' else 'Manual'}")
+                    # CRITICAL FIX: Ensure Account/Card and Submenu explicitly store the scheme name so passbook captures it
+                    log_transaction(current_ist_date, "Investment (LIC/Loan)", ll_item, ll_item, ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {ll_item}")
                             
                     save_data()
                     st.success(f"✅ Payment recorded for {ll_item} successfully!")
@@ -745,7 +746,8 @@ elif menu == "Special Transactions":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
                     acc_val = rd_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
-                    log_transaction(current_ist_date, "Investment (RD/MF)", rd_item, f"Payment for {rd_item}", rd_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment paid via {rd_acc_card if pay_action == 'Pay via Bank / Card (Deducts Balance)' else 'Manual'}")
+                    # CRITICAL FIX: Ensure Account/Card and Submenu explicitly store the scheme name so passbook captures it
+                    log_transaction(current_ist_date, "Investment (RD/MF)", rd_item, rd_item, rd_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {rd_item}")
                             
                     save_data()
                     st.success(f"✅ Payment updated for {rd_item} successfully!")
@@ -1039,10 +1041,10 @@ elif menu == "Reports":
 
                 df_pass = df_pass.sort_values(by="Date", ascending=True).reset_index(drop=True)
                 
-                # Match transactions by Account/Card or Submenu or Note containing target_name
+                # ULTRA-SECURE FILTERING: Check Account/Card OR Submenu OR Note OR Mode explicitly containing target_name
                 df_filtered = df_pass[
-                    (df_pass["Account/Card"] == target_name) | 
-                    (df_pass["Submenu"] == target_name) | 
+                    (df_pass["Account/Card"].str.contains(target_name, case=False, na=False)) | 
+                    (df_pass["Submenu"].str.contains(target_name, case=False, na=False)) | 
                     (df_pass["Note"].str.contains(target_name, case=False, na=False))
                 ].copy()
                 
