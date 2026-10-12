@@ -1244,6 +1244,47 @@ elif menu == "Udhar & EMI Tracker":
                         save_data()
                         st.success("✅ Udhar record updated successfully!")
                         st.rerun()
+
+                st.markdown("---")
+                st.subheader("🛠️ Edit or Delete Record Details")
+                with st.form("edit_master_udhar_form"):
+                    edit_fname = st.text_input("Edit Friend Name", value=str(rec["Friend Name"]), key="edit_f_name")
+                    edit_mobile = st.text_input("Edit Mobile Number", value=str(rec.get("Mobile Number", "")), key="edit_f_mob")
+                    edit_open = st.number_input("Edit Opening Due", value=float(rec.get("Opening Balance / Previous Due", 0)), key="edit_f_open")
+                    edit_new_giv = st.number_input("Edit New Given Amount", value=float(rec.get("New Given Amount", 0)), key="edit_f_new")
+                    edit_emi_chk = st.checkbox("Is this via Credit Card / EMI?", value=bool(rec.get("Is EMI", False)), key="edit_f_emi")
+                    edit_notes = st.text_input("Edit Notes", value=str(rec.get("Notes", "")), key="edit_f_notes")
+                    
+                    col_ed1, col_ed2 = st.columns(2)
+                    with col_ed1:
+                        submitted_edit_rec = st.form_submit_button("💾 Save Changes")
+                    with col_ed2:
+                        submitted_del_rec = st.form_submit_button("❌ Delete Record")
+                        
+                    if submitted_edit_rec:
+                        idx = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].index[0]
+                        total_init = edit_open + edit_new_giv
+                        cur_returned = float(rec["Amount Returned"])
+                        new_due_val = total_init + float(rec["Interest / Processing Fee"]) - float(rec["Cashback / Discount"]) - cur_returned
+                        
+                        st.session_state.udhar_emi.loc[idx, "Friend Name"] = edit_fname
+                        st.session_state.udhar_emi.loc[idx, "Mobile Number"] = edit_mobile
+                        st.session_state.udhar_emi.loc[idx, "Opening Balance / Previous Due"] = edit_open
+                        st.session_state.udhar_emi.loc[idx, "New Given Amount"] = edit_new_giv
+                        st.session_state.udhar_emi.loc[idx, "Final Confirmed Amount"] = total_init
+                        st.session_state.udhar_emi.loc[idx, "Balance Due"] = new_due_val
+                        st.session_state.udhar_emi.loc[idx, "Is EMI"] = edit_emi_chk
+                        st.session_state.udhar_emi.loc[idx, "Notes"] = edit_notes
+                        
+                        save_data()
+                        st.success("✅ Record details updated successfully!")
+                        st.rerun()
+                        
+                    if submitted_del_rec:
+                        st.session_state.udhar_emi = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] != selected_id].reset_index(drop=True)
+                        save_data()
+                        st.success("✅ Record deleted successfully!")
+                        st.rerun()
             else:
                 st.info("No active dues pending right now. All settled records have been moved to the History tab.")
         else:
@@ -1254,7 +1295,6 @@ elif menu == "Udhar & EMI Tracker":
         if not st.session_state.udhar_emi.empty:
             active_udhar = st.session_state.udhar_emi[st.session_state.udhar_emi["Balance Due"] > 0]
             if not active_udhar.empty:
-                # Using unique ID formatting in selectbox options to prevent sharing same preview content
                 rem_sel_id = st.selectbox(
                     "Select Record for Reminder", 
                     active_udhar["ID"].tolist(), 
