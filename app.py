@@ -22,7 +22,7 @@ def load_data():
         "cards": [],
         "lic_loans": [],
         "rd_mf": [],
-        "rd_mf_ledger": [], # Dedicated standalone ledger for RD & MF
+        "rd_mf_ledger": [],
         "submenus": {
             "Patna": ["Rent", "Office"],
             "Barhiya": ["Vegetable", "Fruit"],
@@ -764,7 +764,7 @@ elif menu == "Special Transactions":
                             
                     acc_val = rd_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
                     
-                    # DEDICATED LOGGING TO STANDALONE RD/MF LEDGER
+                    # LOG TO DEDICATED RD/MF LEDGER
                     log_rd_mf_transaction(current_ist_date, rd_item, rd_mode if pay_action == 'Pay via Bank / Card (Deducts Balance)' else 'Cash', acc_val, amount, f"Installment paid via {acc_val}")
                             
                     save_data()
@@ -836,7 +836,7 @@ elif menu == "Next Due Tracker":
                         st.session_state.rd_mf.loc[r_idx, "Timing Value"] = new_due.strftime("%d-%m-%Y")
                         st.session_state.rd_mf.loc[r_idx, "Status"] = "Pending"
                         
-                        # Also log automatically to standalone RD/MF ledger on rollover completion
+                        # Log to standalone RD/MF ledger
                         scheme_amt = float(st.session_state.rd_mf.loc[r_idx, "Installment Amount"])
                         linked_bank = str(st.session_state.rd_mf.loc[r_idx, "Linked Bank"])
                         log_rd_mf_transaction(current_ist_date, sel_rd, "Saving Bank Account", linked_bank, scheme_amt, "Rollover payment from Next Due Tracker")
@@ -1038,7 +1038,6 @@ elif menu == "Reports":
         
         if target_name:
             if item_type == "RD/MF":
-                # STANDALONE LEDGER LOGIC FOR RD & MUTUAL FUNDS
                 rd_row = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == target_name]
                 opening_val = float(rd_row.iloc[0].get("Opening Balance", 0.0)) if not rd_row.empty else 0.0
                 
@@ -1054,6 +1053,28 @@ elif menu == "Reports":
                 running_bal = opening_val
                 if not df_filtered.empty:
                     df_filtered["Date"] = pd.to_datetime(df_filtered["Date"])
+                    
+                    today_dt = pd.to_datetime(current_ist_date)
+                    if pass_filter_type == "Daily":
+                        df_filtered = df_filtered[df_filtered["Date"].dt.date == current_ist_date]
+                    elif pass_filter_type == "Weekly":
+                        start_week = today_dt - timedelta(days=7)
+                        df_filtered = df_filtered[(df_filtered["Date"] >= start_week) & (df_filtered["Date"] <= today_dt)]
+                    elif pass_filter_type == "Monthly":
+                        df_filtered = df_filtered[(df_filtered["Date"].dt.month == today_dt.month) & (df_filtered["Date"].dt.year == today_dt.year)]
+                    elif pass_filter_type == "Quarterly":
+                        current_quarter = (today_dt.month - 1) // 3 + 1
+                        df_filtered = df_filtered[(df_filtered["Date"].dt.quarter == current_quarter) & (df_filtered["Date"].dt.year == today_dt.year)]
+                    elif pass_filter_type == "Half Yearly":
+                        current_half = 1 if today_dt.month <= 6 else 2
+                        df_filtered = df_filtered[(df_filtered["Date"].dt.month.apply(lambda m: 1 if m <= 6 else 2) == current_half) & (df_filtered["Date"].dt.year == today_dt.year)]
+                    elif pass_filter_type == "Yearly":
+                        df_filtered = df_filtered[df_filtered["Date"].dt.year == today_dt.year]
+                    elif pass_filter_type == "Custom Date Range":
+                        pc_start = st.date_input("Start Date", value=current_ist_date, key="pass_start")
+                        pc_end = st.date_input("End Date", value=current_ist_date, key="pass_end")
+                        df_filtered = df_filtered[(df_filtered["Date"].dt.date >= pc_start) & (df_filtered["Date"].dt.date <= pc_end)]
+
                     df_filtered = df_filtered.sort_values(by="Date", ascending=True).reset_index(drop=True)
                     
                     balances = []
@@ -1064,7 +1085,7 @@ elif menu == "Reports":
                         
                     df_filtered["Running Balance"] = balances
                     df_filtered["Date"] = df_filtered["Date"].dt.date
-                    df_filtered = df_filtered.iloc[::-1].reset_index(drop=True) # Latest on top
+                    df_filtered = df_filtered.iloc[::-1].reset_index(drop=True)
                     
                     display_cols = [c for c in ["Date", "Scheme Name", "Mode", "Account/Card", "Amount", "Running Balance", "Note"] if c in df_filtered.columns]
                     st.dataframe(df_filtered[display_cols])
@@ -1073,7 +1094,6 @@ elif menu == "Reports":
                 else:
                     st.info(f"💡 **Opening Balance for {target_name}:** Rs. {opening_val:,.2f} (No installment transactions logged yet)")
             else:
-                # EXISTING BANK / CC / LIC PASSBOOK LOGIC
                 if not st.session_state.transactions.empty:
                     df_pass = st.session_state.transactions.copy()
                     df_pass["Date"] = pd.to_datetime(df_pass["Date"])
@@ -1453,4 +1473,4 @@ elif menu == "Udhar & EMI Tracker":
 
 # --- Permanent Footer ---
 st.markdown("---")
-st.markdown("<p style='text-align: center; color: gray; font-size: 14px;'>Designed and developed by Rahul</p>", unsafe_app=True)
+st.markdown("<p style='text-align: center; color: gray; font-size: 14px;'>Designed and developed by Rahul</p>", unsafe_allow_html=True)
