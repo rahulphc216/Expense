@@ -1198,8 +1198,13 @@ elif menu == "Udhar & EMI Tracker":
                 st.markdown("---")
                 st.subheader("✏️ Update Card Bill Adjustments / Repayments / Add New Transactions")
                 
-                active_ids = active_df["ID"].tolist()
-                selected_id = st.selectbox("Select Udhar Record ID to Update", active_ids, key="up_id_sel")
+                # Enhanced Selectbox showing both Friend Name and Udhar ID clearly
+                selected_id = st.selectbox(
+                    "Select Friend / Record to Update", 
+                    active_df["ID"].tolist(), 
+                    format_func=lambda x: f"{active_df[active_df['ID'] == x]['Friend Name'].values[0]} (ID: {x} | Due: Rs. {active_df[active_df['ID'] == x]['Balance Due'].values[0]:,.2f})",
+                    key="up_id_sel"
+                )
                 
                 rec = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].iloc[0]
                 
