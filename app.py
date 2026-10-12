@@ -1254,7 +1254,14 @@ elif menu == "Udhar & EMI Tracker":
         if not st.session_state.udhar_emi.empty:
             active_udhar = st.session_state.udhar_emi[st.session_state.udhar_emi["Balance Due"] > 0]
             if not active_udhar.empty:
-                rem_sel_id = st.selectbox("Select Record for Reminder", active_udhar["ID"].tolist(), key="rem_sel")
+                # Using unique ID formatting in selectbox options to prevent sharing same preview content
+                rem_sel_id = st.selectbox(
+                    "Select Record for Reminder", 
+                    active_udhar["ID"].tolist(), 
+                    format_func=lambda x: f"{active_udhar[active_udhar['ID'] == x]['Friend Name'].values[0]} (Due: Rs. {active_udhar[active_udhar['ID'] == x]['Balance Due'].values[0]:,.2f})",
+                    key="rem_sel_dropdown"
+                )
+                
                 rem_rec = active_udhar[active_udhar["ID"] == rem_sel_id].iloc[0]
                 
                 f_name_rem = rem_rec["Friend Name"]
@@ -1274,7 +1281,7 @@ elif menu == "Udhar & EMI Tracker":
                     else:
                         msg_text = f"HELLO {f_name_rem}, AAPKA TOTAL CURRENT BALANCE DUE RS. {due_amt} HAI (OPENING DUE: {open_due} + NEW GIVEN: {new_giv} VIA {mode_rem}). PLEASE PAYMENT CLEAR KAR DEIN."
                 
-                st.text_area("Generated WhatsApp Message Preview (ALL CAPS):", value=msg_text, height=120, key="wa_preview_area")
+                st.text_area("Generated WhatsApp Message Preview (ALL CAPS):", value=msg_text, height=120, key=f"wa_preview_{rem_sel_id}")
                 
                 encoded_msg = urllib.parse.quote(msg_text)
                 wa_link = f"https://wa.me/{f_mob_rem}?text={encoded_msg}" if f_mob_rem else "#"
