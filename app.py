@@ -1205,6 +1205,7 @@ elif menu == "Udhar & EMI Tracker":
                     key="up_id_sel_pay"
                 )
                 
+                # Fetch fresh record matching selected_id_pay dynamically
                 rec_pay = active_df[active_df["ID"] == selected_id_pay].iloc[0]
                 
                 st.info(f"📌 **Selected Record Preview:**\n\n"
@@ -1327,11 +1328,14 @@ elif menu == "Udhar & EMI Tracker":
                 new_giv = rem_rec.get("New Given Amount", 0)
                 is_emi = rem_rec.get("Is EMI", False)
                 
+                # Dynamic amount display to avoid showing 0.0 when new_given is 0
+                display_amt = new_giv if new_giv > 0 else (due_amt if due_amt > 0 else open_due)
+                
                 if is_emi:
-                    msg_text = f"HELLO {f_name_rem}, AT PRESENT RS. {new_giv} KA TRANSACTION HUA HAI (MODE: CREDIT CARD ENDING WITH {acc_det[-4:] if len(acc_det)>=4 else acc_det}). YEH EMI/CARD PAR HAI, ISLIYE ACTUAL FINAL AMOUNT CREDIT CARD KA BILL GENERATE HONE KE BAAD EXACT CONFIRM KIYA JAYEGA. AAPKA TOTAL CURRENT BALANCE DUE (INCLUDING OPENING BALANCE) RS. {due_amt} HAI. PLEASE CLEAR AT THE EARLIEST."
+                    msg_text = f"HELLO {f_name_rem}, AT PRESENT RS. {display_amt} KA TRANSACTION HUA HAI (MODE: CREDIT CARD ENDING WITH {acc_det[-4:] if len(acc_det)>=4 else acc_det}). YEH EMI/CARD PAR HAI, ISLIYE ACTUAL FINAL AMOUNT CREDIT CARD KA BILL GENERATE HONE KE BAAD EXACT CONFIRM KIYA JAYEGA. AAPKA TOTAL CURRENT BALANCE DUE (INCLUDING OPENING BALANCE) RS. {due_amt} HAI. PLEASE CLEAR AT THE EARLIEST."
                 else:
                     if "Card" in mode_rem:
-                        msg_text = f"HELLO {f_name_rem}, AT PRESENT RS. {new_giv} KA TRANSACTION HUA HAI (MODE: CREDIT CARD ENDING WITH {acc_det[-4:] if len(acc_det)>=4 else acc_det}). AAPKA TOTAL CURRENT BALANCE DUE RS. {due_amt} HAI. PLEASE PAYMENT CLEAR KAR DEIN."
+                        msg_text = f"HELLO {f_name_rem}, AT PRESENT RS. {display_amt} KA TRANSACTION HUA HAI (MODE: CREDIT CARD ENDING WITH {acc_det[-4:] if len(acc_det)>=4 else acc_det}). AAPKA TOTAL CURRENT BALANCE DUE RS. {due_amt} HAI. PLEASE PAYMENT CLEAR KAR DEIN."
                     else:
                         msg_text = f"HELLO {f_name_rem}, AAPKA TOTAL CURRENT BALANCE DUE RS. {due_amt} HAI (OPENING DUE: {open_due} + NEW GIVEN: {new_giv} VIA {mode_rem}). PLEASE PAYMENT CLEAR KAR DEIN."
                 
