@@ -710,10 +710,10 @@ elif menu == "Special Transactions":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
                     acc_val = ll_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
-                    log_transaction(current_ist_date, "Investment (LIC/Loan)", "Others", f"Investment: {ll_item}", ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {ll_item}")
+                    log_transaction(current_ist_date, "Investment (LIC/Loan)", "Others", ll_item, ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {ll_item}")
                             
                     save_data()
-                    st.success(f"✅ Payment recorded for {ll_item} successfully (Logged as Investment, not Expense)!")
+                    st.success(f"✅ Payment recorded for {ll_item} successfully!")
                     st.balloons()
             else:
                 st.warning("Please add LIC/Loans and Bank/Cards in Master Settings first.")
@@ -745,10 +745,10 @@ elif menu == "Special Transactions":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
                     acc_val = rd_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
-                    log_transaction(current_ist_date, "Investment (RD/MF)", "Others", f"Investment: {rd_item}", rd_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {rd_item}")
+                    log_transaction(current_ist_date, "Investment (RD/MF)", "Others", rd_item, rd_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {rd_item}")
                             
                     save_data()
-                    st.success(f"✅ Payment updated for {rd_item} successfully (Logged as Investment, not Expense)!")
+                    st.success(f"✅ Payment updated for {rd_item} successfully!")
                     st.balloons()
             else:
                 st.warning("Please add RD/MF and Bank/Cards in Master Settings first.")
@@ -972,24 +972,47 @@ elif menu == "Reports":
     with tab_rep2:
         st.subheader("📖 Individual Item Passbook / Ledger with Running Balance")
         
-        item_choices = []
-        if not st.session_state.banks.empty:
-            item_choices.extend([f"Bank: {b}" for b in st.session_state.banks["Bank Name"]])
-        if not st.session_state.cards.empty and "Card Name" in st.session_state.cards.columns:
-            item_choices.extend([f"Credit Card: {c}" for c in st.session_state.cards["Card Name"]])
-        if not st.session_state.rd_mf.empty:
-            item_choices.extend([f"RD/MF: {r}" for r in st.session_state.rd_mf["Name / Scheme"]])
-        if not st.session_state.lic_loans.empty:
-            item_choices.extend([f"LIC/Loan: {l}" for l in st.session_state.lic_loans["Name / Policy No"]])
-        item_choices.append("Cash")
+        # Categorized selection to avoid cluttering in a single long dropdown
+        pass_category = st.selectbox("Select Asset / Account Category", ["Bank Accounts", "Credit Cards", "RD & Mutual Funds", "LIC & Loans", "Cash"], key="pass_cat_sel")
         
-        if item_choices:
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                selected_item = st.selectbox("Select Bank / Card / RD / Loan / LIC for Passbook", item_choices, key="passbook_sel")
-            with col_p2:
-                pass_filter_type = st.selectbox("Filter Period", ["All", "Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly", "Custom Date Range"], key="pass_per")
+        target_name = None
+        item_type = None
+        
+        if pass_category == "Bank Accounts":
+            if not st.session_state.banks.empty:
+                b_sel = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="pass_bank_sel")
+                target_name = b_sel
+                item_type = "Bank"
+            else:
+                st.warning("No bank accounts added yet.")
+        elif pass_category == "Credit Cards":
+            if not st.session_state.cards.empty and "Card Name" in st.session_state.cards.columns:
+                c_sel = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="pass_card_sel")
+                target_name = c_sel
+                item_type = "Credit Card"
+            else:
+                st.warning("No credit cards added yet.")
+        elif pass_category == "RD & Mutual Funds":
+            if not st.session_state.rd_mf.empty:
+                r_sel = st.selectbox("Select RD / Mutual Fund Scheme", st.session_state.rd_mf["Name / Scheme"], key="pass_rd_sel")
+                target_name = r_sel
+                item_type = "RD/MF"
+            else:
+                st.warning("No RD or Mutual Funds added yet.")
+        elif pass_category == "LIC & Loans":
+            if not st.session_state.lic_loans.empty:
+                l_sel = st.selectbox("Select LIC Policy / Loan", st.session_state.lic_loans["Name / Policy No"], key="pass_ll_sel")
+                target_name = l_sel
+                item_type = "LIC/Loan"
+            else:
+                st.warning("No LIC or Loans added yet.")
+        else:
+            target_name = "Cash"
+            item_type = "Cash"
             
+        pass_filter_type = st.selectbox("Filter Period", ["All", "Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly", "Custom Date Range"], key="pass_per")
+        
+        if target_name:
             if not st.session_state.transactions.empty:
                 df_pass = st.session_state.transactions.copy()
                 df_pass["Date"] = pd.to_datetime(df_pass["Date"])
@@ -1017,38 +1040,35 @@ elif menu == "Reports":
 
                 df_pass = df_pass.sort_values(by="Date", ascending=True).reset_index(drop=True)
                 
-                item_type = selected_item.split(": ")[0]
-                target_name = selected_item.split(": ")[-1] if ": " in selected_item else selected_item
-                
                 df_filtered = df_pass[
                     (df_pass["Account/Card"] == target_name) | 
                     (df_pass["Submenu"] == target_name) | 
                     (df_pass["Note"].str.contains(target_name, case=False, na=False))
                 ].copy()
                 
-                st.write(f"### Passbook History for: **{selected_item}** (Total Entries: {len(df_filtered)})")
+                st.write(f"### Passbook History for: **{target_name}** (Total Entries: {len(df_filtered)})")
                 
-                if not df_filtered.empty:
+                running_bal = 0.0
+                if item_type == "Bank" and not st.session_state.banks.empty:
+                    b_row = st.session_state.banks[st.session_state.banks["Bank Name"] == target_name]
+                    if not b_row.empty:
+                        running_bal = float(b_row.iloc[0]["Opening Balance"])
+                elif item_type == "Credit Card" and not st.session_state.cards.empty:
+                    c_row = st.session_state.cards[st.session_state.cards["Card Name"] == target_name]
+                    if not c_row.empty:
+                        running_bal = float(c_row.iloc[0]["Current Limit"])
+                elif item_type == "RD/MF" and not st.session_state.rd_mf.empty:
+                    rd_row = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == target_name]
+                    if not rd_row.empty:
+                        running_bal = float(rd_row.iloc[0].get("Opening Balance", 0.0))
+                elif item_type == "LIC/Loan" and not st.session_state.lic_loans.empty:
+                    ll_row = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == target_name]
+                    if not ll_row.empty:
+                        running_bal = float(ll_row.iloc[0].get("Total Amount / Sum Assured", 0.0))
+                else:
                     running_bal = 0.0
-                    if item_type == "Bank" and not st.session_state.banks.empty:
-                        b_row = st.session_state.banks[st.session_state.banks["Bank Name"] == target_name]
-                        if not b_row.empty:
-                            running_bal = float(b_row.iloc[0]["Opening Balance"])
-                    elif item_type == "Credit Card" and not st.session_state.cards.empty:
-                        c_row = st.session_state.cards[st.session_state.cards["Card Name"] == target_name]
-                        if not c_row.empty:
-                            running_bal = float(c_row.iloc[0]["Current Limit"])
-                    elif item_type in ["RD/MF", "LIC/Loan"]:
-                        rd_row = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == target_name]
-                        if not rd_row.empty:
-                            running_bal = float(rd_row.iloc[0].get("Opening Balance", 0.0))
-                        else:
-                            ll_row = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == target_name]
-                            if not ll_row.empty:
-                                running_bal = float(ll_row.iloc[0].get("Total Amount / Sum Assured", 0.0))
-                            else:
-                                running_bal = 0.0
-                        
+                    
+                if not df_filtered.empty:
                     balances = []
                     for idx, row in df_filtered.iterrows():
                         amt = float(row["Amount"])
@@ -1065,6 +1085,7 @@ elif menu == "Reports":
                             else:
                                 running_bal += amt
                         else:
+                            # For RD/MF or LIC/Loan individual passbook, add contributions/investments to opening balance
                             running_bal += amt
                             
                         balances.append(running_bal)
@@ -1078,23 +1099,18 @@ elif menu == "Reports":
                     
                     st.info(f"💡 **Current / Latest Closing Balance for {target_name}:** Rs. {running_bal:,.2f}")
                 else:
-                    # Even if no direct transactions found yet, show the Opening Balance if it's RD/MF/LIC
-                    if item_type in ["RD/MF", "LIC/Loan"]:
-                        op_val = 0.0
-                        rd_row = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == target_name]
-                        if not rd_row.empty:
-                            op_val = float(rd_row.iloc[0].get("Opening Balance", 0.0))
-                        else:
-                            ll_row = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == target_name]
-                            if not ll_row.empty:
-                                op_val = float(ll_row.iloc[0].get("Total Amount / Sum Assured", 0.0))
-                        st.info(f"💡 **Opening / Total Balance for {target_name}:** Rs. {op_val:,.2f} (No recent installment transactions logged yet)")
-                    else:
-                        st.info(f"No direct transaction history found for '{target_name}' in the selected period.")
+                    st.info(f"💡 **Opening Balance for {target_name}:** Rs. {running_bal:,.2f} (No installment transactions logged yet)")
             else:
-                st.info("No transactions recorded yet.")
-        else:
-            st.warning("Please add Bank Accounts, Credit Cards, or Assets in Master Settings first.")
+                op_val = 0.0
+                if item_type == "RD/MF" and not st.session_state.rd_mf.empty:
+                    rd_row = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == target_name]
+                    if not rd_row.empty:
+                        op_val = float(rd_row.iloc[0].get("Opening Balance", 0.0))
+                elif item_type == "LIC/Loan" and not st.session_state.lic_loans.empty:
+                    ll_row = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == target_name]
+                    if not ll_row.empty:
+                        op_val = float(ll_row.iloc[0].get("Total Amount / Sum Assured", 0.0))
+                st.info(f"💡 **Opening Balance for {target_name}:** Rs. {op_val:,.2f} (No transactions recorded yet)")
 
     with tab_rep3:
         st.subheader("💰 Net Balance Summary (Total Income - Total Expense)")
