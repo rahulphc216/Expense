@@ -710,10 +710,10 @@ elif menu == "Special Transactions":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
                     acc_val = ll_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
-                    log_transaction(current_ist_date, "Expense", "Others", "LIC/Loan Payment", ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {ll_item}")
+                    log_transaction(current_ist_date, "Investment (LIC/Loan)", "Others", f"Investment: {ll_item}", ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {ll_item}")
                             
                     save_data()
-                    st.success(f"✅ Payment recorded for {ll_item} and added to Expenses report successfully!")
+                    st.success(f"✅ Payment recorded for {ll_item} successfully (Logged as Investment, not Expense)!")
                     st.balloons()
             else:
                 st.warning("Please add LIC/Loans and Bank/Cards in Master Settings first.")
@@ -744,8 +744,11 @@ elif menu == "Special Transactions":
                             c_idx = st.session_state.cards[st.session_state.cards["Card Name"] == rd_acc_card].index[0]
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
+                    acc_val = rd_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
+                    log_transaction(current_ist_date, "Investment (RD/MF)", "Others", f"Investment: {rd_item}", rd_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {rd_item}")
+                            
                     save_data()
-                    st.success(f"✅ Payment updated for {rd_item} successfully!")
+                    st.success(f"✅ Payment updated for {rd_item} successfully (Logged as Investment, not Expense)!")
                     st.balloons()
             else:
                 st.warning("Please add RD/MF and Bank/Cards in Master Settings first.")
@@ -753,7 +756,7 @@ elif menu == "Special Transactions":
 # ==================== 7. NEXT DUE TRACKER (Dedicated Control Room) ====================
 elif menu == "Next Due Tracker":
     st.header("⏳ Dedicated Next Due Tracker & Control Room")
-    st.write("Yahan aap apni saari LIC, Loans, RD, aur Mutual Funds ki due dates aur status ko ek hi jagah par aasani se manage aur rollover kar sakte hain.")
+    st.write("Yahan aap apni saari LIC, Loans, RD, aur Mutual Funds ki due dates aur status को ek hi jagah par aasani se manage aur rollover kar sakte hain.")
     
     tab_due1, tab_due2 = st.tabs(["📑 LIC & Loans Dues", "📈 RD & Mutual Funds Dues"])
     
@@ -837,7 +840,7 @@ elif menu == "Reports":
             with col_f1:
                 filter_type = st.selectbox("Filter Period", ["All", "Daily", "Weekly", "Monthly", "Quarterly", "Half Yearly", "Yearly", "Custom Date Range"], key="rep_per")
             with col_f2:
-                tx_type_filter = st.selectbox("Transaction Type", ["All", "Expense", "Income"], key="rep_type")
+                tx_type_filter = st.selectbox("Transaction Type", ["All", "Expense", "Income", "Investment (RD/MF)", "Investment (LIC/Loan)"], key="rep_type")
             with col_f3:
                 all_modes = ["All"] + list(st.session_state.transactions["Account/Card"].unique())
                 account_filter = st.selectbox("Filter by Bank/Card/Cash", all_modes, key="rep_acc")
@@ -1036,7 +1039,16 @@ elif menu == "Reports":
                         if not c_row.empty:
                             running_bal = float(c_row.iloc[0]["Current Limit"])
                     elif item_type in ["RD/MF", "LIC/Loan"]:
-                        running_bal = 0.0
+                        # For RD/MF/LIC, opening balance comes from scheme definition or 0 + sum of investments
+                        rd_row = st.session_state.rd_mf[st.session_state.rd_mf["Name / Scheme"] == target_name]
+                        if not rd_row.empty:
+                            running_bal = float(rd_row.iloc[0].get("Opening Balance", 0.0))
+                        else:
+                            ll_row = st.session_state.lic_loans[st.session_state.lic_loans["Name / Policy No"] == target_name]
+                            if not ll_row.empty:
+                                running_bal = float(ll_row.iloc[0].get("Total Amount / Sum Assured", 0.0))
+                            else:
+                                running_bal = 0.0
                         
                     balances = []
                     for idx, row in df_filtered.iterrows():
@@ -1044,16 +1056,17 @@ elif menu == "Reports":
                         t_type = row["Type"]
                         
                         if item_type == "Bank":
-                            if t_type in ["Expense", "Self-Transfer Out", "CC Bill Payment Out", "LIC/Loan Payment", "Investment (RD/MF)", "Udhar Given"]:
+                            if t_type in ["Expense", "Self-Transfer Out", "CC Bill Payment Out", "LIC/Loan Payment", "Investment (RD/MF)", "Investment (LIC/Loan)", "Udhar Given"]:
                                 running_bal -= amt
                             else:
                                 running_bal += amt
                         elif item_type == "Credit Card":
-                            if t_type in ["Expense", "Udhar Given"]:
+                            if t_type in ["Expense", "Udhar Given", "Investment (RD/MF)", "Investment (LIC/Loan)"]:
                                 running_bal -= amt
                             else:
                                 running_bal += amt
                         else:
+                            # For RD/MF or LIC/Loan individual passbook, add contributions/investments
                             running_bal += amt
                             
                         balances.append(running_bal)
@@ -1205,7 +1218,6 @@ elif menu == "Udhar & EMI Tracker":
                     key="up_id_sel_pay"
                 )
                 
-                # Fetch fresh record matching selected_id_pay dynamically
                 rec_pay = active_df[active_df["ID"] == selected_id_pay].iloc[0]
                 
                 st.info(f"📌 **Selected Record Preview:**\n\n"
@@ -1328,7 +1340,6 @@ elif menu == "Udhar & EMI Tracker":
                 new_giv = rem_rec.get("New Given Amount", 0)
                 is_emi = rem_rec.get("Is EMI", False)
                 
-                # Dynamic amount display to avoid showing 0.0 when new_given is 0
                 display_amt = new_giv if new_giv > 0 else (due_amt if due_amt > 0 else open_due)
                 
                 if is_emi:
