@@ -1198,7 +1198,6 @@ elif menu == "Udhar & EMI Tracker":
                 st.markdown("---")
                 st.subheader("✏️ Update Card Bill Adjustments / Repayments / Add New Transactions")
                 
-                # Enhanced Selectbox showing both Friend Name and Udhar ID clearly
                 selected_id = st.selectbox(
                     "Select Friend / Record to Update", 
                     active_df["ID"].tolist(), 
@@ -1252,13 +1251,17 @@ elif menu == "Udhar & EMI Tracker":
 
                 st.markdown("---")
                 st.subheader("🛠️ Edit or Delete Record Details")
+                
+                # Fetch fresh record state for edit form
+                rec_edit = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].iloc[0]
+                
                 with st.form("edit_master_udhar_form"):
-                    edit_fname = st.text_input("Edit Friend Name", value=str(rec["Friend Name"]), key="edit_f_name")
-                    edit_mobile = st.text_input("Edit Mobile Number", value=str(rec.get("Mobile Number", "")), key="edit_f_mob")
-                    edit_open = st.number_input("Edit Opening Due", value=float(rec.get("Opening Balance / Previous Due", 0)), key="edit_f_open")
-                    edit_new_giv = st.number_input("Edit New Given Amount", value=float(rec.get("New Given Amount", 0)), key="edit_f_new")
-                    edit_emi_chk = st.checkbox("Is this via Credit Card / EMI?", value=bool(rec.get("Is EMI", False)), key="edit_f_emi")
-                    edit_notes = st.text_input("Edit Notes", value=str(rec.get("Notes", "")), key="edit_f_notes")
+                    edit_fname = st.text_input("Edit Friend Name", value=str(rec_edit["Friend Name"]), key="edit_f_name")
+                    edit_mobile = st.text_input("Edit Mobile Number", value=str(rec_edit.get("Mobile Number", "")), key="edit_f_mob")
+                    edit_open = st.number_input("Edit Opening Due", value=float(rec_edit.get("Opening Balance / Previous Due", 0)), key="edit_f_open")
+                    edit_new_giv = st.number_input("Edit New Given Amount", value=float(rec_edit.get("New Given Amount", 0)), key="edit_f_new")
+                    edit_emi_chk = st.checkbox("Is this via Credit Card / EMI?", value=bool(rec_edit.get("Is EMI", False)), key="edit_f_emi")
+                    edit_notes = st.text_input("Edit Notes", value=str(rec_edit.get("Notes", "")), key="edit_f_notes")
                     
                     col_ed1, col_ed2 = st.columns(2)
                     with col_ed1:
@@ -1269,8 +1272,8 @@ elif menu == "Udhar & EMI Tracker":
                     if submitted_edit_rec:
                         idx = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].index[0]
                         total_init = edit_open + edit_new_giv
-                        cur_returned = float(rec["Amount Returned"])
-                        new_due_val = total_init + float(rec["Interest / Processing Fee"]) - float(rec["Cashback / Discount"]) - cur_returned
+                        cur_returned = float(rec_edit["Amount Returned"])
+                        new_due_val = total_init + float(rec_edit["Interest / Processing Fee"]) - float(rec_edit["Cashback / Discount"]) - cur_returned
                         
                         st.session_state.udhar_emi.loc[idx, "Friend Name"] = edit_fname
                         st.session_state.udhar_emi.loc[idx, "Mobile Number"] = edit_mobile
