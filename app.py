@@ -77,7 +77,6 @@ if "data_loaded" not in st.session_state:
     if st.session_state.transactions.empty:
         st.session_state.transactions = pd.DataFrame(columns=["Date", "Type", "Location", "Submenu", "Mode", "Account/Card", "Amount", "Note"])
         
-    # Udhar & EMI Tracker Isolated Table Initialization with Opening Balance Support
     st.session_state.udhar_emi = pd.DataFrame(saved_data.get("udhar_emi", []))
     if st.session_state.udhar_emi.empty:
         st.session_state.udhar_emi = pd.DataFrame(columns=[
@@ -199,7 +198,6 @@ elif menu == "Dashboard":
     current_month = current_ist_date.month
     current_year = current_ist_date.year
 
-    # Credit Card Alerts
     if not st.session_state.cards.empty and "Due Date (Day)" in st.session_state.cards.columns:
         for idx, row in st.session_state.cards.iterrows():
             try:
@@ -210,7 +208,6 @@ elif menu == "Dashboard":
             except:
                 pass
                 
-    # LIC / Loans Alerts
     if not st.session_state.lic_loans.empty:
         if "Status" not in st.session_state.lic_loans.columns:
             st.session_state.lic_loans["Status"] = "Pending"
@@ -233,7 +230,6 @@ elif menu == "Dashboard":
             except:
                 pass
 
-    # RD / MF Due Alerts
     if not st.session_state.rd_mf.empty:
         if "Status" not in st.session_state.rd_mf.columns:
             st.session_state.rd_mf["Status"] = "Pending"
@@ -253,7 +249,6 @@ elif menu == "Dashboard":
             except:
                 pass
 
-    # Quick Summary Metrics
     st.subheader("📌 Overall Financial Summary")
     col_s1, col_s2, col_s3, col_s4 = st.columns(4)
     
@@ -1133,27 +1128,32 @@ elif menu == "Udhar & EMI Tracker":
     
     with tab_u1:
         st.subheader("Record New Loan / Opening Balance / New Given Amount")
-        with st.form("add_udhar_form"):
-            u_date = st.date_input("Date", value=current_ist_date, key="u_date_in")
-            f_name = st.text_input("Friend's Name")
-            f_mobile = st.text_input("Mobile Number (with country code e.g., 919876543210)")
-            u_mode = st.selectbox("Payment Mode", ["Cash", "Saving Bank Account", "Credit Card"], key="u_mode_in")
-            
-            u_acc_card = "N/A"
-            if u_mode == "Saving Bank Account":
-                if not st.session_state.banks.empty:
-                    u_acc_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="u_b_in")
-            elif u_mode == "Credit Card":
-                if not st.session_state.cards.empty:
-                    u_acc_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="u_c_in")
-                    
-            opening_due = st.number_input("Opening Balance / Previous Due (Purana Chal Raha Baaki)", value=0.0, key="u_open_amt")
-            new_given = st.number_input("New Transaction / New Given Amount", value=0.0, key="u_new_amt")
-            is_emi_card = st.checkbox("Is this via Credit Card / EMI (Actual final amount will be confirmed after bill generation)?")
-            notes = st.text_input("Additional Notes / Details")
-            
-            submitted_u = st.form_submit_button("Save Udhar Entry")
-            if submitted_u and f_name:
+        
+        # Isolated Form fields without cross-mode triggers
+        u_date = st.date_input("Date", value=current_ist_date, key="u_date_in")
+        f_name = st.text_input("Friend's Name", key="u_fname_in")
+        f_mobile = st.text_input("Mobile Number (with country code e.g., 919876543210)", key="u_mob_in")
+        u_mode = st.selectbox("Payment Mode", ["Cash", "Saving Bank Account", "Credit Card"], key="u_mode_in")
+        
+        u_acc_card = "N/A"
+        if u_mode == "Saving Bank Account":
+            if not st.session_state.banks.empty:
+                u_acc_card = st.selectbox("Select Bank Account", st.session_state.banks["Bank Name"], key="u_b_in")
+            else:
+                st.warning("Please add a bank account first in Master Settings.")
+        elif u_mode == "Credit Card":
+            if not st.session_state.cards.empty:
+                u_acc_card = st.selectbox("Select Credit Card", st.session_state.cards["Card Name"], key="u_c_in")
+            else:
+                st.warning("Please add a credit card first in Master Settings.")
+                
+        opening_due = st.number_input("Opening Balance / Previous Due (Purana Chal Raha Baaki)", value=0.0, key="u_open_amt")
+        new_given = st.number_input("New Transaction / New Given Amount", value=0.0, key="u_new_amt")
+        is_emi_card = st.checkbox("Is this via Credit Card / EMI (Actual final amount will be confirmed after bill generation)?", key="u_emi_chk")
+        notes = st.text_input("Additional Notes / Details", key="u_notes_in")
+        
+        if st.button("Save Udhar Entry", key="save_udhar_btn"):
+            if f_name:
                 u_id = f"UDHAR_{int(datetime.utcnow().timestamp())}"
                 total_initial = opening_due + new_given
                 status_val = "Pending (Awaiting Bill Confirmation)" if is_emi_card else "Active"
@@ -1181,7 +1181,7 @@ elif menu == "Udhar & EMI Tracker":
                 save_data()
                 st.success(f"✅ Udhar & Opening Balance entry for {f_name} recorded successfully!")
                 st.balloons()
-            elif submitted_u and not f_name:
+            else:
                 st.error("Please enter Friend's Name.")
 
     with tab_u2:
@@ -1195,18 +1195,18 @@ elif menu == "Udhar & EMI Tracker":
             st.subheader("✏️ Update Card Bill Adjustments / Repayments / Add New Transactions")
             
             udhar_ids = st.session_state.udhar_emi["ID"].tolist()
-            selected_id = st.selectbox("Select Udhar Record ID to Update", udhar_ids)
+            selected_id = st.selectbox("Select Udhar Record ID to Update", udhar_ids, key="up_id_sel")
             
             rec = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].iloc[0]
             st.write(f"**Friend:** {rec['Friend Name']} | **Opening Due:** Rs. {rec.get('Opening Balance / Previous Due', 0)} | **New Given:** Rs. {rec.get('New Given Amount', 0)} | **Current Balance Due:** Rs. {rec['Balance Due']}")
             
             with st.form("update_udhar_form"):
-                add_more_given = st.number_input("Add More New Udhar Amount (if given later)", value=0.0)
-                new_final_amt = st.number_input("Confirmed Final Amount (after bill generation / adjustments)", value=float(rec["Final Confirmed Amount"]))
-                interest_fee = st.number_input("Add Interest / Processing Fee", value=float(rec["Interest / Processing Fee"]))
-                cashback = st.number_input("Less Cashback / Discount", value=float(rec["Cashback / Discount"]))
-                repayment_amt = st.number_input("Amount Paid Back Now by Friend", value=0.0)
-                update_notes = st.text_input("Update Notes", value=str(rec["Notes"]))
+                add_more_given = st.number_input("Add More New Udhar Amount (if given later)", value=0.0, key="up_add_more")
+                new_final_amt = st.number_input("Confirmed Final Amount (after bill generation / adjustments)", value=float(rec["Final Confirmed Amount"]), key="up_final_amt")
+                interest_fee = st.number_input("Add Interest / Processing Fee", value=float(rec["Interest / Processing Fee"]), key="up_int_fee")
+                cashback = st.number_input("Less Cashback / Discount", value=float(rec["Cashback / Discount"]), key="up_cb")
+                repayment_amt = st.number_input("Amount Paid Back Now by Friend", value=0.0, key="up_rep_amt")
+                update_notes = st.text_input("Update Notes", value=str(rec["Notes"]), key="up_notes")
                 
                 sub_update = st.form_submit_button("Update & Reconcile")
                 if sub_update:
@@ -1258,7 +1258,7 @@ elif menu == "Udhar & EMI Tracker":
                 else:
                     msg_text = f"Hello {f_name_rem}, aapka total current balance due Rs. {due_amt} hai (Opening Due: {open_due} + New Given: {new_giv} via {mode_rem}). Please payment clear kar dein."
                 
-                st.text_area("Generated WhatsApp Message Preview:", value=msg_text, height=120)
+                st.text_area("Generated WhatsApp Message Preview:", value=msg_text, height=120, key="wa_preview_area")
                 
                 encoded_msg = urllib.parse.quote(msg_text)
                 wa_link = f"https://wa.me/{f_mob_rem}?text={encoded_msg}" if f_mob_rem else "#"
