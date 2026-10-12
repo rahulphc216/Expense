@@ -1259,6 +1259,7 @@ elif menu == "Udhar & EMI Tracker":
                     key="up_id_sel_edit"
                 )
                 
+                # Dedicated query for edit record so it never mismatches
                 rec_edit = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id_edit].iloc[0]
                 
                 with st.form("edit_master_udhar_form"):
