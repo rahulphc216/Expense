@@ -710,7 +710,7 @@ elif menu == "Special Transactions":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
                     acc_val = ll_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
-                    log_transaction(current_ist_date, "Investment (LIC/Loan)", "Others", ll_item, ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {ll_item}")
+                    log_transaction(current_ist_date, "Investment (LIC/Loan)", ll_item, f"Payment for {ll_item}", ll_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment paid via {ll_acc_card if pay_action == 'Pay via Bank / Card (Deducts Balance)' else 'Manual'}")
                             
                     save_data()
                     st.success(f"✅ Payment recorded for {ll_item} successfully!")
@@ -745,7 +745,7 @@ elif menu == "Special Transactions":
                             st.session_state.cards.loc[c_idx, "Current Limit"] -= amount
                             
                     acc_val = rd_acc_card if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Manual/Marked"
-                    log_transaction(current_ist_date, "Investment (RD/MF)", "Others", rd_item, rd_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment for {rd_item}")
+                    log_transaction(current_ist_date, "Investment (RD/MF)", rd_item, f"Payment for {rd_item}", rd_mode if pay_action == "Pay via Bank / Card (Deducts Balance)" else "Cash", acc_val, amount, f"Installment paid via {rd_acc_card if pay_action == 'Pay via Bank / Card (Deducts Balance)' else 'Manual'}")
                             
                     save_data()
                     st.success(f"✅ Payment updated for {rd_item} successfully!")
@@ -972,7 +972,6 @@ elif menu == "Reports":
     with tab_rep2:
         st.subheader("📖 Individual Item Passbook / Ledger with Running Balance")
         
-        # Categorized selection to avoid cluttering in a single long dropdown
         pass_category = st.selectbox("Select Asset / Account Category", ["Bank Accounts", "Credit Cards", "RD & Mutual Funds", "LIC & Loans", "Cash"], key="pass_cat_sel")
         
         target_name = None
@@ -1040,6 +1039,7 @@ elif menu == "Reports":
 
                 df_pass = df_pass.sort_values(by="Date", ascending=True).reset_index(drop=True)
                 
+                # Match transactions by Account/Card or Submenu or Note containing target_name
                 df_filtered = df_pass[
                     (df_pass["Account/Card"] == target_name) | 
                     (df_pass["Submenu"] == target_name) | 
@@ -1085,7 +1085,6 @@ elif menu == "Reports":
                             else:
                                 running_bal += amt
                         else:
-                            # For RD/MF or LIC/Loan individual passbook, add contributions/investments to opening balance
                             running_bal += amt
                             
                         balances.append(running_bal)
