@@ -1259,16 +1259,16 @@ elif menu == "Udhar & EMI Tracker":
                     key="up_id_sel_edit"
                 )
                 
-                # Dedicated query for edit record so it never mismatches
-                rec_edit = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id_edit].iloc[0]
+                # Fetch fresh record state for edit form matching the exact selected_id_edit
+                rec_edit = active_df[active_df["ID"] == selected_id_edit].iloc[0]
                 
                 with st.form("edit_master_udhar_form"):
-                    edit_fname = st.text_input("Edit Friend Name", value=str(rec_edit["Friend Name"]), key="edit_f_name")
-                    edit_mobile = st.text_input("Edit Mobile Number", value=str(rec_edit.get("Mobile Number", "")), key="edit_f_mob")
-                    edit_open = st.number_input("Edit Opening Due", value=float(rec_edit.get("Opening Balance / Previous Due", 0)), key="edit_f_open")
-                    edit_new_giv = st.number_input("Edit New Given Amount", value=float(rec_edit.get("New Given Amount", 0)), key="edit_f_new")
-                    edit_emi_chk = st.checkbox("Is this via Credit Card / EMI?", value=bool(rec_edit.get("Is EMI", False)), key="edit_f_emi")
-                    edit_notes = st.text_input("Edit Notes", value=str(rec_edit.get("Notes", "")), key="edit_f_notes")
+                    edit_fname = st.text_input("Edit Friend Name", value=str(rec_edit["Friend Name"]), key=f"edit_f_name_{selected_id_edit}")
+                    edit_mobile = st.text_input("Edit Mobile Number", value=str(rec_edit.get("Mobile Number", "")), key=f"edit_f_mob_{selected_id_edit}")
+                    edit_open = st.number_input("Edit Opening Due", value=float(rec_edit.get("Opening Balance / Previous Due", 0)), key=f"edit_f_open_{selected_id_edit}")
+                    edit_new_giv = st.number_input("Edit New Given Amount", value=float(rec_edit.get("New Given Amount", 0)), key=f"edit_f_new_{selected_id_edit}")
+                    edit_emi_chk = st.checkbox("Is this via Credit Card / EMI?", value=bool(rec_edit.get("Is EMI", False)), key=f"edit_f_emi_{selected_id_edit}")
+                    edit_notes = st.text_input("Edit Notes", value=str(rec_edit.get("Notes", "")), key=f"edit_f_notes_{selected_id_edit}")
                     
                     col_ed1, col_ed2 = st.columns(2)
                     with col_ed1:
