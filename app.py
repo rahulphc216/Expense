@@ -1205,7 +1205,7 @@ elif menu == "Udhar & EMI Tracker":
                     key="up_id_sel_pay"
                 )
                 
-                rec_pay = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id_pay].iloc[0]
+                rec_pay = active_df[active_df["ID"] == selected_id_pay].iloc[0]
                 
                 st.info(f"📌 **Selected Record Preview:**\n\n"
                         f"• **Friend Name:** {rec_pay['Friend Name']}\n"
@@ -1214,13 +1214,13 @@ elif menu == "Udhar & EMI Tracker":
                         f"• **New Given:** Rs. {rec_pay.get('New Given Amount', 0):,.2f}\n"
                         f"• **Total Balance Due:** Rs. {rec_pay['Balance Due']:,.2f}")
                 
-                with st.form("update_udhar_form"):
-                    add_more_given = st.number_input("Add More New Udhar Amount (if given later)", value=0.0, key="up_add_more")
-                    new_final_amt = st.number_input("Confirmed Final Amount (after bill generation / adjustments)", value=float(rec_pay["Final Confirmed Amount"]), key="up_final_amt")
-                    interest_fee = st.number_input("Add Interest / Processing Fee", value=float(rec_pay["Interest / Processing Fee"]), key="up_int_fee")
-                    cashback = st.number_input("Less Cashback / Discount", value=float(rec_pay["Cashback / Discount"]), key="up_cb")
-                    repayment_amt = st.number_input("Amount Paid Back Now by Friend", value=0.0, key="up_rep_amt")
-                    update_notes = st.text_input("Update Notes", value=str(rec_pay["Notes"]), key="up_notes")
+                with st.form(f"update_udhar_form_{selected_id_pay}"):
+                    add_more_given = st.number_input("Add More New Udhar Amount (if given later)", value=0.0, key=f"up_add_more_{selected_id_pay}")
+                    new_final_amt = st.number_input("Confirmed Final Amount (after bill generation / adjustments)", value=float(rec_pay["Final Confirmed Amount"]), key=f"up_final_amt_{selected_id_pay}")
+                    interest_fee = st.number_input("Add Interest / Processing Fee", value=float(rec_pay["Interest / Processing Fee"]), key=f"up_int_fee_{selected_id_pay}")
+                    cashback = st.number_input("Less Cashback / Discount", value=float(rec_pay["Cashback / Discount"]), key=f"up_cb_{selected_id_pay}")
+                    repayment_amt = st.number_input("Amount Paid Back Now by Friend", value=0.0, key=f"up_rep_amt_{selected_id_pay}")
+                    update_notes = st.text_input("Update Notes", value=str(rec_pay["Notes"]), key=f"up_notes_{selected_id_pay}")
                     
                     sub_update = st.form_submit_button("Update & Reconcile")
                     if sub_update:
@@ -1259,10 +1259,9 @@ elif menu == "Udhar & EMI Tracker":
                     key="up_id_sel_edit"
                 )
                 
-                # Fetch fresh record state for edit form matching the exact selected_id_edit
                 rec_edit = active_df[active_df["ID"] == selected_id_edit].iloc[0]
                 
-                with st.form("edit_master_udhar_form"):
+                with st.form(f"edit_master_udhar_form_{selected_id_edit}"):
                     edit_fname = st.text_input("Edit Friend Name", value=str(rec_edit["Friend Name"]), key=f"edit_f_name_{selected_id_edit}")
                     edit_mobile = st.text_input("Edit Mobile Number", value=str(rec_edit.get("Mobile Number", "")), key=f"edit_f_mob_{selected_id_edit}")
                     edit_open = st.number_input("Edit Opening Due", value=float(rec_edit.get("Opening Balance / Previous Due", 0)), key=f"edit_f_open_{selected_id_edit}")
