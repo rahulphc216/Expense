@@ -1126,7 +1126,7 @@ elif menu == "Udhar & EMI Tracker":
     st.header("🤝 Dedicated Udhar & EMI Tracker with Opening Balance")
     st.write("Yeh tab puri tarah se isolated hai. Iska asar kisi bhi main expense report ya bank balance par nahi padega.")
     
-    tab_u1, tab_u2, tab_u3 = st.tabs(["➕ Add New Udhar / Opening Balance", "📋 View & Update Tracker", "💬 WhatsApp Reminders"])
+    tab_u1, tab_u2, tab_u3, tab_u4 = st.tabs(["➕ Add New Udhar / Opening Balance", "📋 Active Tracker", "💬 WhatsApp Reminders", "✅ Settled Records (History)"])
     
     with tab_u1:
         st.subheader("Record New Loan / Opening Balance / New Given Amount")
@@ -1157,7 +1157,7 @@ elif menu == "Udhar & EMI Tracker":
             if f_name:
                 u_id = f"UDHAR_{int(datetime.utcnow().timestamp())}"
                 total_initial = opening_due + new_given
-                status_val = "Pending (Awaiting Bill Confirmation)" if is_emi_card else "Active"
+                status_val = "Settled (Paid)" if total_initial <= 0 else ("Pending (Awaiting Bill Confirmation)" if is_emi_card else "Active")
                 
                 new_udhar_row = {
                     "ID": u_id,
@@ -1187,61 +1187,65 @@ elif menu == "Udhar & EMI Tracker":
                 st.error("Please enter Friend's Name.")
 
     with tab_u2:
-        st.subheader("Manage, Update & Reconcile Udhar Entries")
+        st.subheader("Manage, Update & Reconcile Active Udhar Entries")
         if not st.session_state.udhar_emi.empty:
-            disp_udhar = st.session_state.udhar_emi.copy()
-            disp_udhar = disp_udhar.sort_values(by="Date", ascending=False).reset_index(drop=True)
-            st.dataframe(disp_udhar)
+            active_df = st.session_state.udhar_emi[st.session_state.udhar_emi["Balance Due"] > 0].copy()
             
-            st.markdown("---")
-            st.subheader("✏️ Update Card Bill Adjustments / Repayments / Add New Transactions")
-            
-            udhar_ids = st.session_state.udhar_emi["ID"].tolist()
-            selected_id = st.selectbox("Select Udhar Record ID to Update", udhar_ids, key="up_id_sel")
-            
-            rec = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].iloc[0]
-            
-            st.info(f"📌 **Selected Record Preview:**\n\n"
-                    f"• **Friend Name:** {rec['Friend Name']}\n"
-                    f"• **Mobile:** {rec.get('Mobile Number', 'N/A')}\n"
-                    f"• **Opening Due:** Rs. {rec.get('Opening Balance / Previous Due', 0):,.2f}\n"
-                    f"• **New Given:** Rs. {rec.get('New Given Amount', 0):,.2f}\n"
-                    f"• **Total Balance Due:** Rs. {rec['Balance Due']:,.2f}")
-            
-            with st.form("update_udhar_form"):
-                add_more_given = st.number_input("Add More New Udhar Amount (if given later)", value=0.0, key="up_add_more")
-                new_final_amt = st.number_input("Confirmed Final Amount (after bill generation / adjustments)", value=float(rec["Final Confirmed Amount"]), key="up_final_amt")
-                interest_fee = st.number_input("Add Interest / Processing Fee", value=float(rec["Interest / Processing Fee"]), key="up_int_fee")
-                cashback = st.number_input("Less Cashback / Discount", value=float(rec["Cashback / Discount"]), key="up_cb")
-                repayment_amt = st.number_input("Amount Paid Back Now by Friend", value=0.0, key="up_rep_amt")
-                update_notes = st.text_input("Update Notes", value=str(rec["Notes"]), key="up_notes")
+            if not active_df.empty:
+                active_df = active_df.sort_values(by="Date", ascending=False).reset_index(drop=True)
+                st.dataframe(active_df)
                 
-                sub_update = st.form_submit_button("Update & Reconcile")
-                if sub_update:
-                    idx = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].index[0]
+                st.markdown("---")
+                st.subheader("✏️ Update Card Bill Adjustments / Repayments / Add New Transactions")
+                
+                active_ids = active_df["ID"].tolist()
+                selected_id = st.selectbox("Select Udhar Record ID to Update", active_ids, key="up_id_sel")
+                
+                rec = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].iloc[0]
+                
+                st.info(f"📌 **Selected Record Preview:**\n\n"
+                        f"• **Friend Name:** {rec['Friend Name']}\n"
+                        f"• **Mobile:** {rec.get('Mobile Number', 'N/A')}\n"
+                        f"• **Opening Due:** Rs. {rec.get('Opening Balance / Previous Due', 0):,.2f}\n"
+                        f"• **New Given:** Rs. {rec.get('New Given Amount', 0):,.2f}\n"
+                        f"• **Total Balance Due:** Rs. {rec['Balance Due']:,.2f}")
+                
+                with st.form("update_udhar_form"):
+                    add_more_given = st.number_input("Add More New Udhar Amount (if given later)", value=0.0, key="up_add_more")
+                    new_final_amt = st.number_input("Confirmed Final Amount (after bill generation / adjustments)", value=float(rec["Final Confirmed Amount"]), key="up_final_amt")
+                    interest_fee = st.number_input("Add Interest / Processing Fee", value=float(rec["Interest / Processing Fee"]), key="up_int_fee")
+                    cashback = st.number_input("Less Cashback / Discount", value=float(rec["Cashback / Discount"]), key="up_cb")
+                    repayment_amt = st.number_input("Amount Paid Back Now by Friend", value=0.0, key="up_rep_amt")
+                    update_notes = st.text_input("Update Notes", value=str(rec["Notes"]), key="up_notes")
                     
-                    updated_new_given = float(rec.get("New Given Amount", 0)) + add_more_given
-                    updated_final_amt = new_final_amt + add_more_given
-                    
-                    total_to_collect = updated_final_amt + interest_fee - cashback
-                    total_returned = float(rec["Amount Returned"]) + repayment_amt
-                    balance_due = total_to_collect - total_returned
-                    
-                    status = "Settled (Paid)" if balance_due <= 0 else "Active"
-                    
-                    st.session_state.udhar_emi.loc[idx, "New Given Amount"] = updated_new_given
-                    st.session_state.udhar_emi.loc[idx, "Final Confirmed Amount"] = updated_final_amt
-                    st.session_state.udhar_emi.loc[idx, "Interest / Processing Fee"] = interest_fee
-                    st.session_state.udhar_emi.loc[idx, "Cashback / Discount"] = cashback
-                    st.session_state.udhar_emi.loc[idx, "Total Amount to Collect"] = total_to_collect
-                    st.session_state.udhar_emi.loc[idx, "Amount Returned"] = total_returned
-                    st.session_state.udhar_emi.loc[idx, "Balance Due"] = balance_due
-                    st.session_state.udhar_emi.loc[idx, "Status"] = status
-                    st.session_state.udhar_emi.loc[idx, "Notes"] = update_notes
-                    
-                    save_data()
-                    st.success("✅ Udhar record updated successfully!")
-                    st.rerun()
+                    sub_update = st.form_submit_button("Update & Reconcile")
+                    if sub_update:
+                        idx = st.session_state.udhar_emi[st.session_state.udhar_emi["ID"] == selected_id].index[0]
+                        
+                        updated_new_given = float(rec.get("New Given Amount", 0)) + add_more_given
+                        updated_final_amt = new_final_amt + add_more_given
+                        
+                        total_to_collect = updated_final_amt + interest_fee - cashback
+                        total_returned = float(rec["Amount Returned"]) + repayment_amt
+                        balance_due = total_to_collect - total_returned
+                        
+                        status = "Settled (Paid)" if balance_due <= 0 else "Active"
+                        
+                        st.session_state.udhar_emi.loc[idx, "New Given Amount"] = updated_new_given
+                        st.session_state.udhar_emi.loc[idx, "Final Confirmed Amount"] = updated_final_amt
+                        st.session_state.udhar_emi.loc[idx, "Interest / Processing Fee"] = interest_fee
+                        st.session_state.udhar_emi.loc[idx, "Cashback / Discount"] = cashback
+                        st.session_state.udhar_emi.loc[idx, "Total Amount to Collect"] = total_to_collect
+                        st.session_state.udhar_emi.loc[idx, "Amount Returned"] = total_returned
+                        st.session_state.udhar_emi.loc[idx, "Balance Due"] = balance_due
+                        st.session_state.udhar_emi.loc[idx, "Status"] = status
+                        st.session_state.udhar_emi.loc[idx, "Notes"] = update_notes
+                        
+                        save_data()
+                        st.success("✅ Udhar record updated successfully!")
+                        st.rerun()
+            else:
+                st.info("No active dues pending right now. All settled records have been moved to the History tab.")
         else:
             st.info("No Udhar entries found yet.")
 
@@ -1262,7 +1266,6 @@ elif menu == "Udhar & EMI Tracker":
                 new_giv = rem_rec.get("New Given Amount", 0)
                 is_emi = rem_rec.get("Is EMI", False)
                 
-                # Crafting message in ALL CAPITAL LETTERS based on Is EMI flag check
                 if is_emi:
                     msg_text = f"HELLO {f_name_rem}, AT PRESENT RS. {new_giv} KA TRANSACTION HUA HAI (MODE: CREDIT CARD ENDING WITH {acc_det[-4:] if len(acc_det)>=4 else acc_det}). YEH EMI/CARD PAR HAI, ISLIYE ACTUAL FINAL AMOUNT CREDIT CARD KA BILL GENERATE HONE KE BAAD EXACT CONFIRM KIYA JAYEGA. AAPKA TOTAL CURRENT BALANCE DUE (INCLUDING OPENING BALANCE) RS. {due_amt} HAI. PLEASE CLEAR AT THE EARLIEST."
                 else:
@@ -1284,6 +1287,19 @@ elif menu == "Udhar & EMI Tracker":
                 st.info("No active dues pending for reminders.")
         else:
             st.info("No records found in Udhar Tracker.")
+
+    with tab_u4:
+        st.subheader("✅ Settled Records History (Fully Paid Dues)")
+        if not st.session_state.udhar_emi.empty:
+            settled_df = st.session_state.udhar_emi[st.session_state.udhar_emi["Balance Due"] <= 0].copy()
+            if not settled_df.empty:
+                settled_df = settled_df.sort_values(by="Date", ascending=False).reset_index(drop=True)
+                st.dataframe(settled_df)
+                st.success("🎉 Yeh saare records poori tarah settle (paid) ho chuke hain!")
+            else:
+                st.info("No settled records found yet. Jab kisi friend ka balance due 0 ho jayega, woh automatic yahan aa jayega.")
+        else:
+            st.info("No records found.")
 
 # --- Permanent Footer ---
 st.markdown("---")
